@@ -1,0 +1,110 @@
+RK3588 Embedded Device Runtime Management Framework Phase 0 Final Design
+Result
+
+1.  System Architecture Overview
+
+定位： Device Runtime Supervisor。
+
+Runtime负责： - Service生命周期管理 - 启停 - 状态维护 - 健康检测 -
+自动恢复 - IPC管理 - 配置管理 - 资源监控
+
+Runtime不负责： Camera、AI推理、MCU业务控制、视觉业务流程。
+
+2.  Module Responsibility Definition
+
+Runtime Manager: 系统协调入口，不实现业务。
+
+Service Manager: 管理Service生命周期。
+
+Monitor: 采集运行状态。
+
+Recovery Manager: 执行恢复动作。
+
+IPC Manager: 负责Runtime与Service通信。
+
+Config Manager: 负责配置加载。
+
+Logger: 负责运行日志。
+
+3.  Process/Thread Model
+
+采用： Multi Process + Internal Thread。
+
+独立进程： - runtime_manager - vision_service - control_service -
+mcu_service - ota_service
+
+线程： - Event Loop - Monitor - IPC Handler - Timer - Logger
+
+4.  Service Lifecycle Model
+
+状态：
+
+CREATED STARTING RUNNING STOPPING STOPPED FAILED RECOVERING
+
+Heartbeat： 周期5秒。 Timeout 15秒。 连续失败3次认为异常。
+
+Restart： 最大5次。 延迟2s到60s。
+
+5.  IPC Design
+
+方式： Unix Domain Socket。
+
+模型： Request/Response + Event。
+
+消息： START STOP QUERY_STATUS HEARTBEAT EVENT
+
+不传输业务数据。
+
+6.  Configuration Design
+
+格式： JSON。
+
+字段： service_name executable arguments autostart dependency
+startup_timeout heartbeat_timeout restart_policy
+
+7.  Failure Recovery Design
+
+支持： - Service crash恢复 - IPC断开恢复 - Heartbeat超时恢复
+
+不自动处理： - Kernel故障 - 硬件损坏 - Firmware问题
+
+8.  Resource Monitoring Scope
+
+Phase 1：
+
+CPU Memory Process Heartbeat
+
+延后：
+
+GPU NPU AI性能 云端监控 历史数据库
+
+9.  Phase 1 Development Input
+
+冻结：
+
+-   Runtime边界
+-   Service模型
+-   IPC模型
+-   配置模型
+-   Monitoring范围
+-   Recovery原则
+
+Phase 1只实现，不重新设计架构。
+
+10. 未解决问题和技术风险
+
+11. OTA升级机制未定义。
+
+12. 动态配置更新未定义。
+
+13. Recovery复杂策略未定义。
+
+14. Service依赖管理有限。
+
+15. Logger高级能力未定义。
+
+16. MCU管理边界需进一步明确。
+
+17. 安全模型未设计。
+
+Phase 0状态： Architecture Freeze PASS
