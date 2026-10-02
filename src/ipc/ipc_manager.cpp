@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <system_error>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <sys/epoll.h>
 #include <sys/socket.h>
@@ -65,7 +66,7 @@ bool valid_utf8(const std::string& text) {
     return true;
 }
 
-// The Phase 1 command payloads are flat JSON objects with string and integer values.
+// Command payloads remain flat JSON objects with string and integer values.
 class Payload {
 public:
     explicit Payload(const std::string& text) : text_(text) {
@@ -109,6 +110,7 @@ public:
         catch (const std::exception&) { fail(); }
     }
     void command_fields() const { if (values_.size() != 1) fail(); }
+    void list_fields() const { if (!values_.empty()) fail(); }
 private:
     [[noreturn]] static void fail() { throw std::invalid_argument("invalid IPC JSON payload"); }
     void space() { while (pos_ < text_.size() && (text_[pos_] == ' ' || text_[pos_] == '\n' ||
@@ -200,13 +202,34 @@ std::int64_t epoch_seconds(Clock::time_point point) {
     return std::chrono::duration_cast<std::chrono::seconds>(system_point.time_since_epoch()).count();
 }
 
+const char* health_status(const ServiceStatus& status, std::chrono::seconds timeout,
+                          Clock::time_point now) {
+    if (status.state == ServiceState::failed) return "UNHEALTHY";
+    if (status.state != ServiceState::running || status.pid <= 0) return "UNKNOWN";
+    // Do not treat successful exec alone as proof of heartbeat health.
+    auto reference = status.start_time;
+    const bool has_heartbeat = status.heartbeat_time &&
+        (!reference || *status.heartbeat_time >= *reference);
+    if (has_heartbeat) reference = status.heartbeat_time;
+    if (!reference || *reference > now) return "UNKNOWN";
+    if (now - *reference >= timeout) return "UNHEALTHY";
+    return has_heartbeat ? "HEALTHY" : "UNKNOWN";
+}
+
 } // namespace
 
-IpcManager::IpcManager(std::string control_path, std::string service_path, Post post, Query query)
+IpcManager::IpcManager(std::string control_path, std::string service_path, Post post, Query query,
+                       std::vector<ServiceConfig> definitions)
     : control_path_(std::move(control_path)), service_path_(std::move(service_path)),
-      post_(std::move(post)), query_(std::move(query)) {
+      post_(std::move(post)), query_(std::move(query)), definitions_(std::move(definitions)) {
     if (!post_ || !query_ || control_path_ == service_path_)
         throw std::invalid_argument("IPC requires distinct paths and runtime callbacks");
+    std::unordered_set<std::string> names;
+    for (const auto& definition : definitions_) {
+        if (definition.service_name.empty() || definition.heartbeat_timeout <= std::chrono::seconds::zero() ||
+            !names.insert(definition.service_name).second)
+            throw std::invalid_argument("invalid static IPC service definitions");
+    }
 }
 
 IpcManager::~IpcManager() { stop(); }
@@ -255,6 +278,9 @@ void IpcManager::stop() {
 
 void IpcManager::serve() {
     std::unordered_map<int, Client> clients;
+    // Transport-side sequencing only: ServiceManager performs every lifecycle change.
+    // Pending manual requests are independent of the requesting connection's lifetime.
+    std::unordered_set<std::string> pending_restarts;
     auto remove_client = [&](int fd) {
         ::epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, fd, nullptr);
         ::close(fd);
@@ -266,9 +292,57 @@ void IpcManager::serve() {
             "{\"result\":\"ERROR\",\"code\":" + std::to_string(code) +
             ",\"message\":\"" + message + "\"}"});
     };
+    auto notify_stop = [&](const std::string& name) {
+        for (auto& [fd, peer] : clients) {
+            if (peer.service && peer.service_name == name)
+                respond(peer, {static_cast<std::uint16_t>(ipc::Type::event), 0,
+                    "{\"event\":\"SERVICE_STOP\",\"service_name\":\"" + json_escape(name) + "\"}"});
+        }
+    };
+    auto cancel_restarts = [&](const std::string& name) {
+        // An explicit STOP also stops dependents in ServiceManager. Do not let an
+        // earlier IPC restart of a dependent subsequently revive its prerequisite.
+        std::unordered_set<std::string> stopped{name};
+        bool changed;
+        do {
+            changed = false;
+            for (const auto& definition : definitions_) {
+                if (stopped.count(definition.service_name)) continue;
+                for (const auto& dependency : definition.dependency) {
+                    if (stopped.count(dependency)) {
+                        stopped.insert(definition.service_name);
+                        changed = true;
+                        break;
+                    }
+                }
+            }
+        } while (changed);
+        for (const auto& service_name : stopped) pending_restarts.erase(service_name);
+    };
     auto handle = [&](Client& client, const ipc::Frame& frame) {
         try {
             const Payload payload(frame.payload);
+            if (frame.type == static_cast<std::uint16_t>(ipc::Type::get_service_list)) {
+                if (client.service) { error(client, frame.request_id, 1002, "invalid message type"); return; }
+                payload.list_fields();
+                std::string result = "{\"services\":[";
+                bool first = true;
+                for (const auto& definition : definitions_) {
+                    const auto status = query_(definition.service_name);
+                    if (!status) { error(client, frame.request_id, 1003, "service snapshot unavailable"); return; }
+                    if (!first) result += ',';
+                    first = false;
+                    result += "{\"service_name\":\"" + json_escape(definition.service_name) +
+                        "\",\"state\":\"" + state_name(status->state) + "\",\"pid\":" + std::to_string(status->pid) +
+                        ",\"health_status\":\"" + health_status(*status, definition.heartbeat_timeout, Clock::now()) + "\"}";
+                    if (result.size() + 2 > ipc::max_payload) {
+                        error(client, frame.request_id, 1003, "service list exceeds payload limit"); return;
+                    }
+                }
+                result += "]}";
+                respond(client, {frame.type, frame.request_id, std::move(result)});
+                return;
+            }
             const auto name = payload.service_name();
             const auto status = query_(name);
             if (!status) { error(client, frame.request_id, 1001, "invalid service"); return; }
@@ -284,12 +358,17 @@ void IpcManager::serve() {
                 respond(client, {frame.type, frame.request_id, "{\"result\":\"OK\",\"state\":\"STARTING\"}"});
             } else if (!client.service && frame.type == static_cast<std::uint16_t>(ipc::Type::stop)) {
                 payload.command_fields();
-                for (auto& [fd, peer] : clients) {
-                    if (peer.service && peer.service_name == name)
-                        respond(peer, {static_cast<std::uint16_t>(ipc::Type::event), 0,
-                            "{\"event\":\"SERVICE_STOP\",\"service_name\":\"" + json_escape(name) + "\"}"});
-                }
+                cancel_restarts(name);
+                notify_stop(name);
                 post_(Event{EventType::stop, name, Clock::now()});
+                respond(client, {frame.type, frame.request_id, "{\"result\":\"OK\"}"});
+            } else if (!client.service && frame.type == static_cast<std::uint16_t>(ipc::Type::restart_service)) {
+                payload.command_fields();
+                if (pending_restarts.insert(name).second) {
+                    try { post_(Event{EventType::stop, name, Clock::now()}); }
+                    catch (...) { pending_restarts.erase(name); throw; }
+                    notify_stop(name);
+                }
                 respond(client, {frame.type, frame.request_id, "{\"result\":\"OK\"}"});
             } else if (!client.service && frame.type == static_cast<std::uint16_t>(ipc::Type::query_status)) {
                 payload.command_fields();
@@ -358,7 +437,7 @@ void IpcManager::serve() {
                 event.data.fd = fd;
                 ::epoll_ctl(epoll_fd_, EPOLL_CTL_MOD, fd, &event);
             }
-            // STOP can enqueue an EVENT on a different service connection.
+            // STOP/RESTART_SERVICE can enqueue an EVENT on another connection.
             for (const auto& [peer_fd, peer] : clients) {
                 if (peer_fd == fd || peer.output.empty()) continue;
                 epoll_event event{};
@@ -367,6 +446,22 @@ void IpcManager::serve() {
                 event.data.fd = peer_fd;
                 ::epoll_ctl(epoll_fd_, EPOLL_CTL_MOD, peer_fd, &event);
             }
+        }
+        for (auto it = pending_restarts.begin(); it != pending_restarts.end();) {
+            // A STOP followed immediately by START would be lost in STOPPING.
+            // Wait for the runtime's reaped-child snapshot before submitting START.
+            try {
+                const auto status = query_(*it);
+                if (!status) { it = pending_restarts.erase(it); continue; }
+                if (status->state == ServiceState::stopped && status->pid <= 0) {
+                    post_(Event{EventType::start, *it, Clock::now()});
+                    it = pending_restarts.erase(it);
+                    continue;
+                }
+            } catch (const std::exception&) {
+                // Retry callback failures on the next poll, preserving the request.
+            }
+            ++it;
         }
     }
     for (const auto& [fd, client] : clients) ::close(fd);

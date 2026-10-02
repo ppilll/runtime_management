@@ -2,6 +2,23 @@ add_executable(runtime_core_tests runtime_core_tests.cpp)
 target_link_libraries(runtime_core_tests PRIVATE runtime_core)
 add_test(NAME runtime_core_unit COMMAND runtime_core_tests)
 
+add_executable(recovery_dependency_tests recovery_dependency_tests.cpp)
+target_link_libraries(recovery_dependency_tests PRIVATE runtime_core)
+add_test(NAME recovery_dependency COMMAND recovery_dependency_tests)
+
+add_executable(process_lifecycle_tests process_lifecycle_tests.cpp)
+target_link_libraries(process_lifecycle_tests PRIVATE runtime_core)
+add_test(NAME process_lifecycle COMMAND process_lifecycle_tests)
+set_tests_properties(process_lifecycle PROPERTIES TIMEOUT 30)
+
+add_executable(phase2_integration_tests phase2_integration_tests.cpp)
+target_link_libraries(phase2_integration_tests PRIVATE runtime_core)
+add_test(NAME phase2_lifecycle_integration COMMAND phase2_integration_tests)
+add_test(NAME phase2_runtime_shutdown_regression
+    COMMAND phase2_integration_tests --shutdown-regression)
+set_tests_properties(phase2_lifecycle_integration phase2_runtime_shutdown_regression
+    PROPERTIES TIMEOUT 60)
+
 add_executable(ipc_integration_tests ipc_integration_tests.cpp)
 target_link_libraries(ipc_integration_tests PRIVATE phase1_ipc)
 add_test(NAME phase1_ipc_integration COMMAND ipc_integration_tests

@@ -21,8 +21,10 @@ RuntimeManager::RuntimeManager(const std::string& config_path)
     const auto configs = ConfigManager::load_file(config_path);
     for (const auto& config : configs) {
         services_.add(config);
-        if (config.autostart) autostart_.push_back(config.service_name);
     }
+    // Validate the complete graph before run() installs signals/starts threads.
+    for (const auto& name : services_.startup_order())
+        if (services_.queryServiceDefinition(name)->autostart) autostart_.push_back(name);
     logger_.log(LogLevel::info, "runtime_manager", "loaded " + std::to_string(configs.size()) + " service configuration(s)");
 }
 

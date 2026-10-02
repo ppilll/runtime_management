@@ -1,7 +1,9 @@
 #include "ipc_manager.hpp"
+#include "runtime/config_manager.hpp"
 #include "runtime/runtime_manager.hpp"
 #include <exception>
 #include <iostream>
+#include <utility>
 
 int main(int argc, char** argv) {
     if (argc != 4) {
@@ -12,7 +14,8 @@ int main(int argc, char** argv) {
         runtime::RuntimeManager core(argv[1]);
         runtime::IpcManager ipc(argv[2], argv[3],
             [&](runtime::Event event) { core.post(std::move(event)); },
-            [&](const std::string& name) { return core.query(name); });
+            [&](const std::string& name) { return core.query(name); },
+            runtime::ConfigManager::load_file(argv[1]));
         ipc.start();
         core.run();
         ipc.stop();

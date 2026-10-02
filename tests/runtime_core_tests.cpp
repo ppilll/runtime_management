@@ -57,7 +57,7 @@ void test_config() {
     const auto loaded = ConfigManager::load_file(unscheduled.string());
     std::filesystem::remove(unscheduled);
     require(loaded[0].service_name == "beta" && loaded[1].service_name == "alpha",
-            "Phase 1 must preserve configuration order without dependency scheduling");
+            "configuration parsing must preserve declaration order");
 }
 
 void test_monitor() {
@@ -112,6 +112,109 @@ struct FakeProcesses final : ProcessSupervisor {
     std::vector<ProcessExit> reap() override { return {}; }
 };
 
+void test_service_manager_model() {
+    FakeProcesses processes;
+    Monitor monitor([](Event) {});
+    std::ostringstream log;
+    Logger logger(log);
+    std::vector<ServiceStateChange> changes;
+    std::vector<std::string> restart_requests;
+    ServiceManager* observed = nullptr;
+    ServiceManager manager(processes, monitor, logger,
+        [&](const ServiceStateChange& change) {
+            require(observed->queryServiceStatus(change.service_name).has_value(),
+                    "state callback could not query the registry");
+            changes.push_back(change);
+        },
+        [&](const std::string& name) {
+            require(observed->queryServiceStatus(name).has_value(),
+                    "restart callback could not query the registry");
+            restart_requests.push_back(name);
+        });
+    observed = &manager;
+
+    ServiceConfig config;
+    config.service_name = "model";
+    config.executable = "/bin/true";
+    config.arguments = {"--flag"};
+    config.environment = {"MODE=test"};
+    config.working_directory = "/tmp";
+    config.dependency = {"base"};
+    config.shutdown_timeout = 7s;
+    manager.registerService(config);
+    require(manager.queryServiceDefinition("model")->environment == config.environment &&
+            manager.queryServiceDefinition("model")->working_directory == "/tmp" &&
+            manager.queryServiceDefinition("model")->dependency == config.dependency &&
+            manager.listServices().size() == 1, "service definition was not retained");
+    require(!manager.queryServiceDefinition("missing") &&
+            !manager.queryServiceStatus("missing"), "unknown registry entry exists");
+    rejects([&] { manager.registerService(config); }, "duplicate registration accepted");
+
+    const auto now = Clock::now();
+    ServiceConfig prerequisite;
+    prerequisite.service_name = "base";
+    prerequisite.executable = "/bin/true";
+    manager.registerService(prerequisite);
+    manager.startService("base", now);
+    changes.clear();
+    manager.startService("model", now);
+    require(manager.queryServiceStatus("model")->state == ServiceState::running &&
+            manager.queryServiceStatus("model")->start_time.has_value() &&
+            *manager.queryServiceStatus("model")->start_time >= now &&
+            changes.size() == 2 && changes[0].from == ServiceState::created &&
+            changes[0].to == ServiceState::starting &&
+            changes[1].from == ServiceState::starting && changes[1].to == ServiceState::running,
+            "start transitions or runtime start time missing");
+    manager.startService("model", now);
+    manager.handle(Event{EventType::process_exited, "model", now, -1, 0});
+    require(changes.size() == 2 && manager.queryServiceStatus("model")->pid == 101,
+            "invalid or duplicate event changed the service");
+    require(manager.restartService("model") && !manager.restartService("missing") &&
+            restart_requests == std::vector<std::string>{"model"},
+            "restart request was not routed exactly once");
+
+    manager.stopService("model", now);
+    manager.tick(now + 6s);
+    require(processes.forced.empty(), "shutdown timeout was ignored");
+    manager.tick(now + 7s);
+    require(processes.forced == std::vector<int>{101}, "shutdown timeout did not escalate");
+    manager.handle(Event{EventType::process_exited, "model", now + 8s, 101, 0});
+    require(changes.size() == 4 && changes[2].from == ServiceState::running &&
+            changes[2].to == ServiceState::stopping &&
+            changes[3].from == ServiceState::stopping && changes[3].to == ServiceState::stopped &&
+            !manager.queryServiceStatus("model")->start_time,
+            "stop transitions or runtime cleanup missing");
+}
+
+void test_service_manager_failure_transitions() {
+    FakeProcesses processes;
+    processes.fail_next_start = true;
+    Monitor monitor([](Event) {});
+    std::ostringstream log;
+    Logger logger(log);
+    std::vector<ServiceStateChange> changes;
+    ServiceManager manager(processes, monitor, logger,
+        [&](const ServiceStateChange& change) { changes.push_back(change); });
+    ServiceConfig config;
+    config.service_name = "failing";
+    config.executable = "/missing";
+    config.restart_policy = RestartPolicy::on_failure;
+    manager.registerService(config);
+    const auto now = Clock::now();
+    manager.startService("failing", now);
+    require(changes.size() == 3 &&
+            changes[0].to == ServiceState::starting &&
+            changes[1].from == ServiceState::starting && changes[1].to == ServiceState::failed &&
+            changes[2].from == ServiceState::failed && changes[2].to == ServiceState::recovering &&
+            manager.queryServiceStatus("failing")->pid < 0,
+            "failed start did not follow the lifecycle state machine");
+    manager.stopService("failing", now);
+    require(changes.size() == 4 && changes[3].from == ServiceState::recovering &&
+            changes[3].to == ServiceState::stopped &&
+            !manager.restartService("failing"),
+            "recovery cancellation or unconnected restart routing failed");
+}
+
 void test_heartbeat_starts_after_exec() {
     FakeProcesses processes;
     std::vector<Event> events;
@@ -153,24 +256,22 @@ void test_service_state() {
     manager.handle(Event{EventType::heartbeat, "alpha", base + 1s});
     require(manager.query("alpha")->heartbeat_time == base + 1s, "heartbeat time");
     monitor.check(base + 16s);
-    monitor.check(base + 21s);
-    monitor.check(base + 26s);
     for (const auto& event : health_events) manager.handle(event);
     require(manager.query("alpha")->state == ServiceState::recovering &&
             manager.query("alpha")->restart_count == 1 && processes.stopped == std::vector<int>{100},
             "health failure and recovery scheduling");
-    manager.handle(Event{EventType::process_exited, "alpha", base + 26s, 100, 9});
-    manager.tick(base + 27s);
+    manager.handle(Event{EventType::process_exited, "alpha", base + 16s, 100, 9});
+    manager.tick(base + 17s);
     require(manager.query("alpha")->state == ServiceState::recovering, "restart occurred too early");
-    manager.tick(base + 28s);
+    manager.tick(base + 18s);
     require(manager.query("alpha")->state == ServiceState::running && manager.query("alpha")->pid == 101,
             "restart transition");
-    manager.handle(Event{EventType::health_missed, "alpha", base + 26s, -1, 0, 3});
+    manager.handle(Event{EventType::health_missed, "alpha", base + 16s, -1, 0, 1});
     require(manager.query("alpha")->state == ServiceState::running,
             "stale monitor event failed a restarted service");
-    manager.handle(Event{EventType::stop, "alpha", base + 29s});
+    manager.handle(Event{EventType::stop, "alpha", base + 19s});
     require(manager.query("alpha")->state == ServiceState::stopping, "stop transition");
-    manager.handle(Event{EventType::process_exited, "alpha", base + 30s, 101, 0});
+    manager.handle(Event{EventType::process_exited, "alpha", base + 20s, 101, 0});
     require(manager.query("alpha")->state == ServiceState::stopped, "stopped transition");
     require(!manager.query("missing"), "unknown service query");
 
@@ -188,7 +289,9 @@ void test_service_state() {
     dependent.dependency = {"alpha"};
     manager.add(dependent);
     manager.handle(Event{EventType::start, "dependent", base + 31s});
-    require(manager.query("dependent")->state == ServiceState::running, "dependency field must not gate Phase 1 start");
+    require(manager.query("dependent")->state == ServiceState::running &&
+            manager.query("alpha")->state == ServiceState::running,
+            "dependency prerequisite was not started");
 }
 
 void test_restart_limit() {
@@ -204,7 +307,7 @@ void test_restart_limit() {
     manager.add(config);
     auto now = Clock::now();
     manager.handle(Event{EventType::start, "crasher", now});
-    for (const int delay : {2, 5, 10, 30, 60}) {
+    for (const int delay : {2, 4, 8, 16, 32}) {
         const auto pid = manager.query("crasher")->pid;
         manager.handle(Event{EventType::process_exited, "crasher", now, pid, 9});
         require(manager.query("crasher")->state == ServiceState::recovering,
@@ -222,7 +325,7 @@ void test_restart_limit() {
         manager.query("crasher")->pid, 9});
     require(manager.query("crasher")->state == ServiceState::failed &&
             manager.query("crasher")->restart_count == 5,
-            "sixth failure exceeded the Phase 1 restart cap");
+            "sixth failure exceeded the restart cap");
 }
 
 void test_stop_escalation() {
@@ -335,6 +438,8 @@ int main() {
         test_config();
         test_monitor();
         test_logger_flush();
+        test_service_manager_model();
+        test_service_manager_failure_transitions();
         test_heartbeat_starts_after_exec();
         test_service_state();
         test_restart_limit();

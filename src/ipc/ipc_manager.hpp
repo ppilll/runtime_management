@@ -7,6 +7,7 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace runtime {
 
@@ -16,7 +17,9 @@ public:
     using Post = std::function<void(Event)>;
     using Query = std::function<std::optional<ServiceStatus>(const std::string&)>;
 
-    IpcManager(std::string control_path, std::string service_path, Post post, Query query);
+    // Definitions are a static configuration snapshot, never a registration API.
+    IpcManager(std::string control_path, std::string service_path, Post post, Query query,
+               std::vector<ServiceConfig> definitions = {});
     ~IpcManager();
     IpcManager(const IpcManager&) = delete;
     IpcManager& operator=(const IpcManager&) = delete;
@@ -29,6 +32,7 @@ private:
     std::string service_path_;
     Post post_;
     Query query_;
+    std::vector<ServiceConfig> definitions_;
     std::atomic<bool> running_{false};
     std::thread thread_;
     int control_fd_ = -1;

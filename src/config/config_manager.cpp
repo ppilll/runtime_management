@@ -196,6 +196,17 @@ ServiceConfig service(const Json& value) {
     if (config.service_name.empty() || config.executable.empty())
         throw std::runtime_error("service_name and executable are required");
     if (const auto* arguments = field(*object, "arguments")) config.arguments = strings(*arguments, "arguments");
+    if (const auto* environment = field(*object, "environment")) {
+        config.environment = strings(*environment, "environment");
+        for (const auto& entry : config.environment) {
+            const auto separator = entry.find('=');
+            if (separator == std::string::npos || separator == 0 || entry.find('\0') != std::string::npos)
+                throw std::runtime_error("environment entry must be KEY=VALUE without NUL");
+        }
+    }
+    config.working_directory = get<std::string>(*object, "working_directory", "");
+    if (config.working_directory.find('\0') != std::string::npos)
+        throw std::runtime_error("working_directory must not contain NUL");
     if (const auto* dependency = field(*object, "dependency")) {
         if (const auto* one = std::get_if<std::string>(dependency)) config.dependency.push_back(*one);
         else config.dependency = strings(*dependency, "dependency");
@@ -203,10 +214,13 @@ ServiceConfig service(const Json& value) {
     config.autostart = get<bool>(*object, "autostart", false);
     const auto startup = get<long long>(*object, "startup_timeout", 15);
     const auto heartbeat = get<long long>(*object, "heartbeat_timeout", 15);
-    if (startup < 1 || startup > 3600 || heartbeat < 1 || heartbeat > 3600)
+    const auto shutdown = get<long long>(*object, "shutdown_timeout", 2);
+    if (startup < 1 || startup > 3600 || heartbeat < 1 || heartbeat > 3600 ||
+        shutdown < 1 || shutdown > 3600)
         throw std::runtime_error("timeouts must be between 1 and 3600 seconds");
     config.startup_timeout = std::chrono::seconds(startup);
     config.heartbeat_timeout = std::chrono::seconds(heartbeat);
+    config.shutdown_timeout = std::chrono::seconds(shutdown);
     const auto policy = get<std::string>(*object, "restart_policy", "never");
     if (policy == "never") config.restart_policy = RestartPolicy::never;
     else if (policy == "on-failure") config.restart_policy = RestartPolicy::on_failure;
