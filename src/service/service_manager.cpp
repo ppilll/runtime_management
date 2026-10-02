@@ -1,5 +1,6 @@
 #include "runtime/service_manager.hpp"
 #include <algorithm>
+#include <limits>
 #include <map>
 #include <set>
 #include <stdexcept>
@@ -63,15 +64,26 @@ bool valid_transition(ServiceState from, ServiceState to) {
 }
 } // namespace
 
-void ServiceManager::transition(Service& service, ServiceState next, Clock::time_point at) {
+void ServiceManager::transition(Service& service, ServiceState next, Clock::time_point at,
+                                bool recovery_exhausted) {
     const auto previous = service.status.state;
     if (previous == next) return;
     if (!valid_transition(previous, next))
         throw std::logic_error(std::string("invalid service transition: ") +
             state_name(previous) + " -> " + state_name(next));
+    // A new launch, fault or explicit stop invalidates earlier recovery work.
+    // STOPPING -> STOPPED completes the same stop generation.
+    if (next == ServiceState::starting || next == ServiceState::failed ||
+        next == ServiceState::stopping ||
+        (next == ServiceState::stopped && previous != ServiceState::stopping)) {
+        if (service.status.generation == std::numeric_limits<std::uint64_t>::max())
+            throw std::overflow_error("service generation exhausted");
+        ++service.status.generation;
+    }
     service.status.state = next;
     if (state_changes_)
-        pending_changes_.push_back({service.status.service_name, previous, next, at});
+        pending_changes_.push_back({service.status.service_name, previous, next, at,
+                                   service.status.generation, recovery_exhausted});
 }
 
 void ServiceManager::dispatch_changes(std::vector<ServiceStateChange> changes) const {
@@ -252,7 +264,9 @@ void ServiceManager::stop(Service& service, Clock::time_point now) {
 void ServiceManager::fail(Service& service, Clock::time_point now, const std::string& reason) {
     monitor_.unwatch(service.status.service_name);
     service.restart_at.reset();
-    transition(service, ServiceState::failed, now);
+    const bool exhausted = service.config.restart_policy != RestartPolicy::never &&
+                           service.status.restart_count >= maximum_restarts;
+    transition(service, ServiceState::failed, now, exhausted);
     logger_.log(LogLevel::error, "service_manager", service.status.service_name + " FAILED: " + reason);
     stop_dependents(service.status.service_name, now);
     if (service.status.pid > 0) {
@@ -380,6 +394,18 @@ void ServiceManager::stop_all(Clock::time_point now) {
         changes.swap(pending_changes_);
     }
     dispatch_changes(std::move(changes));
+}
+
+std::optional<Clock::time_point> ServiceManager::shutdown_deadline() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::optional<Clock::time_point> latest;
+    for (const auto& [name, service] : services_) {
+        (void)name;
+        if (service.status.pid > 0 && service.termination_deadline &&
+            (!latest || *service.termination_deadline > *latest))
+            latest = service.termination_deadline;
+    }
+    return latest;
 }
 
 } // namespace runtime

@@ -10,7 +10,8 @@ constexpr std::size_t header_size = 10;
 constexpr std::uint32_t max_payload = 64 * 1024;
 enum class Type : std::uint16_t {
     start = 1, stop = 2, query_status = 3, heartbeat = 4, event = 5,
-    restart_service = 6, get_service_list = 7, error = 255
+    restart_service = 6, get_service_list = 7,
+    get_device_state = 8, get_health = 9, subscribe_event = 10, error = 255
 };
 
 struct Frame {

@@ -6,9 +6,11 @@
 #include "runtime/runtime_manager.hpp"
 #include "runtime/service_manager.hpp"
 #include <chrono>
+#include <csignal>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <thread>
@@ -81,6 +83,61 @@ void test_monitor() {
     monitor.unwatch("alpha");
     monitor.check(base + 100s);
     require(events.size() == 4, "unwatched service still emits events");
+}
+
+void test_resource_monitor_thresholds() {
+    std::vector<RuntimeEvent> facts;
+    Monitor monitor([](Event) {}, 5s, [&](RuntimeEvent event) { facts.push_back(std::move(event)); });
+    const auto at = Clock::now();
+    monitor.report_resources(79.9, 79.9, at);
+    require(facts.size() == 2 && !facts[0].active && !facts[1].active, "normal resource measurements not cleared");
+    monitor.report_resources(80, 80, at);
+    require(facts[2].active && facts[3].active && facts[3].severity == ResourceSeverity::warning,
+            "80 percent warning threshold");
+    monitor.report_resources(0, 95, at);
+    require(!facts[4].active && facts[5].severity == ResourceSeverity::critical && facts[5].at == at,
+            "95 percent critical threshold or metadata");
+    monitor.report_resources(0, 94.9, at);
+    require(facts.back().active && facts.back().severity == ResourceSeverity::warning, "critical resource downgrade");
+    monitor.report_resources(0, 0, at);
+    require(!facts.back().active && facts.back().source == "memory_monitor", "memory clear source");
+    const auto count = facts.size();
+    for (const auto value : {-1.0, 101.0, std::numeric_limits<double>::infinity(),
+                             std::numeric_limits<double>::quiet_NaN()})
+        rejects([&] { monitor.report_resources(0, value); }, "invalid percentage accepted");
+    require(facts.size() == count, "invalid resource input published partial facts");
+    Monitor configured([](Event) {}, 5s, [&](RuntimeEvent event) { facts.push_back(std::move(event)); },
+                       ResourceThresholds{60, 70, 90});
+    configured.report_resources(60, 90);
+    require(facts[facts.size() - 2].active && facts.back().severity == ResourceSeverity::critical,
+            "custom static resource thresholds ignored");
+    rejects([] { Monitor invalid([](Event) {}, 5s, {}, ResourceThresholds{80, 95, 80}); },
+            "reversed thresholds accepted");
+}
+
+void test_runtime_resource_fact_adapter() {
+    const auto path = temp_config(R"({"service_name":"idle","executable":"/bin/true","autostart":false})");
+    RuntimeManager manager(path.string());
+    std::filesystem::remove(path);
+    manager.reportResourceUsage(0, 95);
+    manager.post(Event{EventType::shutdown, {}, Clock::now()});
+    manager.run();
+    require(manager.queryDeviceState().current == DeviceState::error &&
+            manager.queryDeviceState().source == "memory_monitor", "critical memory fact was not queued and aggregated");
+}
+
+void test_runtime_observer_exception_cleans_up() {
+    const auto path = temp_config(R"({"service_name":"idle","executable":"/bin/true","autostart":false})");
+    struct sigaction before{}, after{};
+    require(::sigaction(SIGTERM, nullptr, &before) == 0, "cannot inspect signal handler");
+    RuntimeManager manager(path.string(), {}, [](const DeviceStateSnapshot&) {
+        throw std::runtime_error("observer failure");
+    });
+    std::filesystem::remove(path);
+    rejects([&] { manager.run(); }, "observer exception not reported");
+    require(manager.query("idle")->state == ServiceState::stopped, "observer exception skipped service cleanup");
+    require(::sigaction(SIGTERM, nullptr, &after) == 0 && before.sa_handler == after.sa_handler,
+            "observer exception left runtime signal handlers installed");
 }
 
 void test_logger_flush() {
@@ -404,10 +461,31 @@ void test_runtime_loop() {
     const auto path = temp_config(R"({"service_name":"idle","executable":"/bin/true","autostart":false})");
     RuntimeManager manager(path.string());
     std::filesystem::remove(path);
+    require(manager.queryDeviceState().current == DeviceState::booting, "runtime device initial state");
     std::thread thread([&] { manager.run(); });
     manager.post(Event{EventType::shutdown, {}, Clock::now()});
     thread.join();
     require(manager.query("idle")->state == ServiceState::stopped, "runtime shutdown");
+    require(manager.queryDeviceState().current == DeviceState::ready, "runtime initialized device trigger");
+}
+
+void test_runtime_device_events() {
+    const auto path = temp_config(R"({"service_name":"idle","executable":"/bin/true","autostart":false})");
+    RuntimeManager manager(path.string());
+    std::filesystem::remove(path);
+    const auto now = Clock::now();
+    // Internal events are queued before run; initialization commits READY first.
+    manager.post(DeviceStateEvent{DeviceStateEventType::required_services_ready, "test aggregator", "ready", now});
+    manager.post(DeviceStateEvent{DeviceStateEventType::critical_failure, "test aggregator", "critical failure", now});
+    manager.post(DeviceStateEvent{DeviceStateEventType::recovery_started, "test recovery", "start recovery", now});
+    manager.post(DeviceStateEvent{DeviceStateEventType::recovery_failed, "test recovery", "recovery exhausted", now});
+    manager.post(Event{EventType::shutdown, {}, now});
+    manager.run();
+    const auto state = manager.queryDeviceState();
+    require(state.current == DeviceState::offline && state.previous == DeviceState::recovering &&
+            state.source == "test recovery" && state.reason == "recovery exhausted" && state.timestamp == now,
+            "runtime did not route device events in FIFO order");
+    require(manager.query("idle")->state == ServiceState::stopped, "device events affected service lifecycle");
 }
 
 void test_runtime_autostart() {
@@ -437,6 +515,9 @@ int main() {
     try {
         test_config();
         test_monitor();
+        test_resource_monitor_thresholds();
+        test_runtime_resource_fact_adapter();
+        test_runtime_observer_exception_cleans_up();
         test_logger_flush();
         test_service_manager_model();
         test_service_manager_failure_transitions();
@@ -447,6 +528,7 @@ int main() {
         test_start_failure_state();
         test_process();
         test_runtime_loop();
+        test_runtime_device_events();
         test_runtime_autostart();
         std::cout << "runtime core tests passed\n";
         return 0;

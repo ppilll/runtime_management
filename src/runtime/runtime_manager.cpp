@@ -3,9 +3,11 @@
 #include <cerrno>
 #include <cstdint>
 #include <csignal>
+#include <exception>
 #include <iostream>
 #include <stdexcept>
 #include <system_error>
+#include <utility>
 #include <sys/timerfd.h>
 #include <unistd.h>
 
@@ -15,12 +17,27 @@ volatile std::sig_atomic_t signal_received = 0;
 void on_signal(int) { signal_received = 1; }
 }
 
-RuntimeManager::RuntimeManager(const std::string& config_path)
-    : logger_(std::cout), monitor_([this](Event event) { queue_.push(std::move(event)); }),
-      services_(processes_, monitor_, logger_) {
+RuntimeManager::RuntimeManager(const std::string& config_path, AggregationOptions aggregation,
+                               DeviceStateManager::StateChangeSink device_changes, ResourceThresholds resources)
+    : logger_(std::cout), monitor_([this](Event event) { queue_.push(std::move(event)); },
+          std::chrono::seconds{5}, [this](RuntimeEvent event) { post(std::move(event)); }, resources),
+      device_states_([this, device_changes = std::move(device_changes)](const DeviceStateSnapshot& state) {
+          logger_.log(LogLevel::info, "device_state_manager",
+              std::string(state_name(state.previous)) + " -> " + state_name(state.current) +
+              " source=" + state.source + " reason=" + state.reason);
+          if (device_changes) device_changes(state);
+      }),
+      aggregation_(device_states_, std::move(aggregation)),
+      services_(processes_, monitor_, logger_,
+          [this](const ServiceStateChange& change) { service_state_changed(change); }) {
+    dispatcher_.subscribe([this](const RuntimeEvent& event) {
+        if (!aggregation_.handle(event))
+            logger_.log(LogLevel::warning, "service_aggregation", "rejected internal runtime event");
+    });
     const auto configs = ConfigManager::load_file(config_path);
     for (const auto& config : configs) {
         services_.add(config);
+        aggregation_.add_service(config.service_name, config.autostart);
     }
     // Validate the complete graph before run() installs signals/starts threads.
     for (const auto& name : services_.startup_order())
@@ -37,6 +54,63 @@ RuntimeManager::~RuntimeManager() {
 }
 
 void RuntimeManager::post(Event event) { queue_.push(std::move(event)); }
+
+void RuntimeManager::post(DeviceStateEvent event) {
+    Event envelope{EventType::device_state, {}, event.timestamp};
+    envelope.device_state_event = std::move(event);
+    post(std::move(envelope));
+}
+
+void RuntimeManager::post(RuntimeEvent event) {
+    Event envelope{EventType::runtime_event, event.service_name, event.at};
+    envelope.runtime_event = std::move(event);
+    post(std::move(envelope));
+}
+
+void RuntimeManager::service_state_changed(const ServiceStateChange& change) {
+    if (shutting_down_) return;
+    auto emit = [&](RuntimeEventType type, const std::string& reason) {
+        RuntimeEvent event{type, change.service_name, "service_manager", reason, change.at};
+        event.generation = change.generation;
+        dispatcher_.publish(std::move(event));
+    };
+    switch (change.to) {
+    case ServiceState::running:
+        emit(RuntimeEventType::service_started, "service entered RUNNING");
+        if (service_recoveries_.erase(change.service_name) != 0)
+            emit(RuntimeEventType::recovery_success, "service running after failure");
+        break;
+    case ServiceState::failed:
+        service_recoveries_.insert(change.service_name);
+        // Emit timeout facts only after ServiceManager's timestamp/PID/state
+        // validation accepts the monitor event. Rejected stale misses emit nothing.
+        if (service_cause_ && service_cause_->type == EventType::health_missed)
+            emit(RuntimeEventType::heartbeat_timeout, "validated heartbeat timeout");
+        else if (service_cause_ && service_cause_->type == EventType::process_exited)
+            emit(RuntimeEventType::service_failed,
+                 "process exited, status=" + std::to_string(service_cause_->exit_status));
+        else
+            emit(RuntimeEventType::service_failed, "service lifecycle failure (see service_manager log)");
+        if (change.recovery_exhausted)
+            emit(RuntimeEventType::recovery_failed, "automatic restart budget exhausted");
+        break;
+    case ServiceState::stopping:
+    case ServiceState::stopped:
+        service_recoveries_.erase(change.service_name);
+        emit(RuntimeEventType::service_stopped, "service stop requested or completed");
+        break;
+    case ServiceState::recovering:
+        emit(RuntimeEventType::recovery_start, "service restart backoff started");
+        break;
+    default: break;
+    }
+}
+
+DeviceStateSnapshot RuntimeManager::queryDeviceState() const { return device_states_.query(); }
+
+void RuntimeManager::reportResourceUsage(double cpu_percent, double memory_percent, Clock::time_point at) {
+    monitor_.report_resources(cpu_percent, memory_percent, at);
+}
 
 std::optional<ServiceStatus> RuntimeManager::query(const std::string& name) const {
     return services_.query(name);
@@ -109,21 +183,45 @@ void RuntimeManager::run() {
         sigaction(SIGTERM, &old_term, nullptr);
         throw;
     }
-    for (const auto& name : autostart_) post(Event{EventType::start, name, Clock::now()});
-    logger_.log(LogLevel::info, "runtime_manager", "event loop started");
-    while (running_ && !signal_received) {
-        Event event{};
-        if (queue_.pop_for(event, std::chrono::milliseconds(200))) {
-            if (event.type == EventType::shutdown) break;
-            services_.handle(event);
-        }
-        for (const auto& exit : processes_.reap()) {
-            for (const auto& status : services_.all_statuses()) {
-                if (status.pid == exit.pid)
-                    post(Event{EventType::process_exited, status.service_name, Clock::now(), exit.pid, exit.status});
+    std::exception_ptr failure;
+    try {
+        // Initialization is an explicit runtime trigger, independent of service health.
+        device_states_.handle(DeviceStateEvent{DeviceStateEventType::runtime_initialized,
+            "runtime_manager", "runtime event loop initialized", Clock::now()});
+        aggregation_.refresh();
+        for (const auto& name : autostart_) post(Event{EventType::start, name, Clock::now()});
+        logger_.log(LogLevel::info, "runtime_manager", "event loop started");
+        while (running_ && !signal_received) {
+            Event event{};
+            if (queue_.pop_for(event, std::chrono::milliseconds(200))) {
+                if (event.type == EventType::shutdown) break;
+                if (event.type == EventType::device_state) {
+                    if (!event.device_state_event ||
+                        device_states_.handle(*event.device_state_event) != DeviceTransitionResult::transitioned)
+                        logger_.log(LogLevel::warning, "device_state_manager", "rejected device state event");
+                } else if (event.type == EventType::runtime_event) {
+                    if (event.runtime_event) dispatcher_.publish(std::move(*event.runtime_event));
+                    else logger_.log(LogLevel::warning, "runtime_manager", "missing internal runtime event payload");
+                } else {
+                    service_cause_ = &event;
+                    services_.handle(event);
+                    service_cause_ = nullptr;
+                }
+                // Causal service facts finish before the next queued command/fact.
+                dispatcher_.drain();
             }
+            for (const auto& exit : processes_.reap()) {
+                for (const auto& status : services_.all_statuses()) {
+                    if (status.pid == exit.pid)
+                        post(Event{EventType::process_exited, status.service_name, Clock::now(), exit.pid, exit.status});
+                }
+            }
+            services_.tick(Clock::now());
+            dispatcher_.drain();
         }
-        services_.tick(Clock::now());
+    } catch (...) {
+        service_cause_ = nullptr;
+        failure = std::current_exception();
     }
     running_ = false;
     if (timer_thread_.joinable()) timer_thread_.join();
@@ -131,24 +229,35 @@ void RuntimeManager::run() {
     if (monitor_thread_.joinable()) monitor_thread_.join();
     ::close(timer_fd_);
     timer_fd_ = -1;
-    services_.stop_all(Clock::now());
-    const auto deadline = Clock::now() + std::chrono::seconds(4);
-    while (Clock::now() < deadline) {
-        bool active = false;
-        for (const auto& exit : processes_.reap()) {
-            for (const auto& status : services_.all_statuses()) {
-                if (status.pid == exit.pid)
-                    services_.handle(Event{EventType::process_exited, status.service_name, Clock::now(), exit.pid, exit.status});
+    // Normal runtime shutdown preserves the last health snapshot, as in Thread 1.
+    shutting_down_ = true;
+    try {
+        services_.stop_all(Clock::now());
+        // Honor every configured grace deadline, then allow bounded SIGKILL/reap
+        // completion. Failure is explicit; never report a successful partial shutdown.
+        const auto deadline = services_.shutdown_deadline().value_or(Clock::now()) + std::chrono::seconds(5);
+        for (;;) {
+            bool active = false;
+            for (const auto& exit : processes_.reap()) {
+                for (const auto& status : services_.all_statuses()) {
+                    if (status.pid == exit.pid)
+                        services_.handle(Event{EventType::process_exited, status.service_name, Clock::now(), exit.pid, exit.status});
+                }
             }
+            for (const auto& status : services_.all_statuses()) active |= status.pid > 0;
+            if (!active) break;
+            if (Clock::now() >= deadline)
+                throw std::runtime_error("runtime shutdown timed out before all services were reaped");
+            services_.tick(Clock::now());
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
-        for (const auto& status : services_.all_statuses()) active |= status.pid > 0;
-        if (!active) break;
-        services_.tick(Clock::now());
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    } catch (...) {
+        if (!failure) failure = std::current_exception();
     }
     sigaction(SIGINT, &old_int, nullptr);
     sigaction(SIGTERM, &old_term, nullptr);
     logger_.log(LogLevel::info, "runtime_manager", "event loop stopped");
+    if (failure) std::rethrow_exception(failure);
 }
 
 } // namespace runtime

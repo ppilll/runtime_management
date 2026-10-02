@@ -1,5 +1,9 @@
 # Phase 2 Thread 5 verification and review
 
+The shutdown defect described below was subsequently addressed on 2026-10-02.
+See `docs/P3/review_fixes.md` for the configured-deadline/reap implementation and
+static verification. This file preserves the original review and test evidence.
+
 Reviewed on 2026-10-01 (Asia/Shanghai) against the working-tree Phase 2 modules,
 `docs/P2/testing_strategy.md` and `docs/P2/recovery_dependency_design.md`.
 The workspace already contained uncommitted Phase 2 implementation and tests.

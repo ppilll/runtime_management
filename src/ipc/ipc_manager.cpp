@@ -1,10 +1,13 @@
 #include "ipc_manager.hpp"
 #include "frame.hpp"
+#include <algorithm>
 #include <cerrno>
 #include <chrono>
 #include <cstring>
+#include <deque>
 #include <filesystem>
 #include <limits>
+#include <mutex>
 #include <stdexcept>
 #include <system_error>
 #include <unordered_map>
@@ -16,13 +19,26 @@
 #include <unistd.h>
 
 namespace runtime {
+struct IpcManager::DeviceEvents {
+    struct Record { std::uint64_t sequence; std::string payload; };
+    std::mutex mutex;
+    std::deque<Record> pending;
+    std::uint64_t sequence = 0;
+    std::uint64_t lost_through = 0;
+    std::size_t bytes = 0;
+};
+
 namespace {
+constexpr std::size_t max_queued_output = 4 * (ipc::header_size + ipc::max_payload);
 struct Client {
     bool service;
     std::string input;
     std::string output;
     std::string service_name;
     bool input_closed = false;
+    bool subscribed = false;
+    std::uint64_t subscribed_after = 0;
+    bool output_overflow = false;
 };
 
 void close_fd(int& fd) {
@@ -89,7 +105,7 @@ public:
                     else while (pos_ < text_.size() && text_[pos_] >= '0' && text_[pos_] <= '9') ++pos_;
                     value = text_.substr(begin, pos_ - begin);
                 }
-                if (key != "service_name" && key != "timestamp") fail();
+                if (key != "service_name" && key != "timestamp" && key != "event") fail();
                 if (!values_.emplace(key, std::make_pair(value, number)).second) fail();
                 if (next('}')) break;
                 take(',');
@@ -109,8 +125,13 @@ public:
         try { (void)std::stoll(it->second.first); }
         catch (const std::exception&) { fail(); }
     }
-    void command_fields() const { if (values_.size() != 1) fail(); }
+    void command_fields() const { if (values_.size() != 1 || !values_.count("service_name")) fail(); }
     void list_fields() const { if (!values_.empty()) fail(); }
+    void subscription_fields() const {
+        const auto it = values_.find("event");
+        if (values_.size() != 1 || it == values_.end() || it->second.second ||
+            it->second.first != "DEVICE_STATE_CHANGED") fail();
+    }
 private:
     [[noreturn]] static void fail() { throw std::invalid_argument("invalid IPC JSON payload"); }
     void space() { while (pos_ < text_.size() && (text_[pos_] == ' ' || text_[pos_] == '\n' ||
@@ -202,6 +223,25 @@ std::int64_t epoch_seconds(Clock::time_point point) {
     return std::chrono::duration_cast<std::chrono::seconds>(system_point.time_since_epoch()).count();
 }
 
+std::string device_json(const DeviceStateSnapshot& state) {
+    if (!valid_utf8(state.reason) || !valid_utf8(state.source))
+        throw std::invalid_argument("invalid device snapshot UTF-8");
+    const auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
+        state.timestamp.time_since_epoch()).count();
+    return "{\"state\":\"" + std::string(state_name(state.current)) +
+        "\",\"timestamp\":" + std::to_string(timestamp) +
+        ",\"reason\":\"" + json_escape(state.reason) + "\"}";
+}
+
+const char* device_health(DeviceState state) {
+    switch (state) {
+    case DeviceState::running: return "HEALTHY";
+    case DeviceState::warning: return "DEGRADED";
+    case DeviceState::error: case DeviceState::offline: return "UNHEALTHY";
+    default: return "UNKNOWN";
+    }
+}
+
 const char* health_status(const ServiceStatus& status, std::chrono::seconds timeout,
                           Clock::time_point now) {
     if (status.state == ServiceState::failed) return "UNHEALTHY";
@@ -219,9 +259,10 @@ const char* health_status(const ServiceStatus& status, std::chrono::seconds time
 } // namespace
 
 IpcManager::IpcManager(std::string control_path, std::string service_path, Post post, Query query,
-                       std::vector<ServiceConfig> definitions)
+                       std::vector<ServiceConfig> definitions, QueryDevice query_device)
     : control_path_(std::move(control_path)), service_path_(std::move(service_path)),
-      post_(std::move(post)), query_(std::move(query)), definitions_(std::move(definitions)) {
+      post_(std::move(post)), query_(std::move(query)), definitions_(std::move(definitions)),
+      query_device_(std::move(query_device)), device_events_(std::make_shared<DeviceEvents>()) {
     if (!post_ || !query_ || control_path_ == service_path_)
         throw std::invalid_argument("IPC requires distinct paths and runtime callbacks");
     std::unordered_set<std::string> names;
@@ -233,6 +274,34 @@ IpcManager::IpcManager(std::string control_path, std::string service_path, Post 
 }
 
 IpcManager::~IpcManager() { stop(); }
+
+IpcManager::DeviceStateSink IpcManager::device_state_sink() const {
+    return [weak = std::weak_ptr<DeviceEvents>(device_events_)](const DeviceStateSnapshot& state) {
+        const auto events = weak.lock();
+        if (!events) return;
+        std::string payload;
+        try {
+            payload = "{\"event\":\"DEVICE_STATE_CHANGED\",\"previous_state\":\"" +
+                std::string(state_name(state.previous)) + "\",\"source\":\"" + json_escape(state.source) +
+                "\"," + device_json(state).substr(1);
+        } catch (const std::exception&) {
+            // A gap is explicit: affected subscribers will be disconnected.
+        }
+        std::lock_guard<std::mutex> lock(events->mutex);
+        const auto sequence = ++events->sequence;
+        if (payload.empty() || payload.size() > ipc::max_payload) {
+            events->lost_through = sequence;
+            return;
+        }
+        events->bytes += payload.size();
+        events->pending.push_back({sequence, std::move(payload)});
+        while (events->bytes > max_queued_output || events->pending.size() > 1024) {
+            events->lost_through = std::max(events->lost_through, events->pending.front().sequence);
+            events->bytes -= events->pending.front().payload.size();
+            events->pending.pop_front();
+        }
+    };
+}
 
 void IpcManager::start() {
     if (running_.exchange(true)) throw std::logic_error("IPC already running");
@@ -286,7 +355,11 @@ void IpcManager::serve() {
         ::close(fd);
         clients.erase(fd);
     };
-    auto respond = [](Client& client, const ipc::Frame& frame) { client.output += ipc::encode(frame); };
+    auto respond = [](Client& client, const ipc::Frame& frame) {
+        const auto encoded = ipc::encode(frame);
+        if (client.output.size() + encoded.size() > max_queued_output) client.output_overflow = true;
+        else if (!client.output_overflow) client.output += encoded;
+    };
     auto error = [&](Client& client, std::uint32_t id, int code, const char* message) {
         respond(client, {static_cast<std::uint16_t>(ipc::Type::error), id,
             "{\"result\":\"ERROR\",\"code\":" + std::to_string(code) +
@@ -320,8 +393,69 @@ void IpcManager::serve() {
         for (const auto& service_name : stopped) pending_restarts.erase(service_name);
     };
     auto handle = [&](Client& client, const ipc::Frame& frame) {
+        bool device_snapshot_request = false;
         try {
             const Payload payload(frame.payload);
+            if (frame.type == static_cast<std::uint16_t>(ipc::Type::get_device_state) ||
+                frame.type == static_cast<std::uint16_t>(ipc::Type::get_health) ||
+                frame.type == static_cast<std::uint16_t>(ipc::Type::subscribe_event)) {
+                if (client.service) { error(client, frame.request_id, 1002, "invalid message type"); return; }
+                const bool subscribe = frame.type == static_cast<std::uint16_t>(ipc::Type::subscribe_event);
+                if (subscribe) payload.subscription_fields();
+                else payload.list_fields();
+                if (!query_device_) { error(client, frame.request_id, 1003, "device snapshot unavailable"); return; }
+                if (subscribe) {
+                    // Locking with the producer defines the subscription boundary.
+                    // Repeating the same subscription does not reset it or duplicate delivery.
+                    if (!client.subscribed) {
+                        std::lock_guard<std::mutex> lock(device_events_->mutex);
+                        client.subscribed_after = device_events_->sequence;
+                        client.subscribed = true;
+                    }
+                    respond(client, {frame.type, frame.request_id,
+                        "{\"result\":\"OK\",\"event\":\"DEVICE_STATE_CHANGED\"}"});
+                    return;
+                }
+                device_snapshot_request = true;
+                DeviceStateSnapshot state;
+                try { state = query_device_(); }
+                catch (const std::exception&) { error(client, frame.request_id, 1003, "device snapshot unavailable"); return; }
+                std::string result = device_json(state);
+                if (frame.type == static_cast<std::uint16_t>(ipc::Type::get_health)) {
+                    result = "{\"device_state\":" + result + ",\"service_summary\":{\"services\":[";
+                    std::size_t healthy = 0, unhealthy = 0, unknown = 0;
+                    bool first = true;
+                    const auto now = Clock::now();
+                    for (const auto& definition : definitions_) {
+                        const auto status = query_(definition.service_name);
+                        if (!status) { error(client, frame.request_id, 1003, "service snapshot unavailable"); return; }
+                        const std::string health = health_status(*status, definition.heartbeat_timeout, now);
+                        if (health == "HEALTHY") ++healthy;
+                        else if (health == "UNHEALTHY") ++unhealthy;
+                        else ++unknown;
+                        if (!first) result += ',';
+                        first = false;
+                        result += "{\"service_name\":\"" + json_escape(definition.service_name) +
+                            "\",\"state\":\"" + state_name(status->state) + "\",\"pid\":" + std::to_string(status->pid) +
+                            ",\"health_status\":\"" + health + "\"}";
+                        if (result.size() > ipc::max_payload) break;
+                    }
+                    const char* overall_health = device_health(state.current);
+                    if (state.current == DeviceState::running) {
+                        // Lifecycle readiness alone does not confirm heartbeat health.
+                        // Use the rows already returned, without mutating device state.
+                        if (unhealthy != 0) overall_health = "UNHEALTHY";
+                        else if (unknown != 0 || definitions_.empty()) overall_health = "UNKNOWN";
+                    }
+                    result += "],\"total\":" + std::to_string(definitions_.size()) +
+                        ",\"healthy\":" + std::to_string(healthy) + ",\"unhealthy\":" + std::to_string(unhealthy) +
+                        ",\"unknown\":" + std::to_string(unknown) + "},\"health\":{\"status\":\"" +
+                        overall_health + "\",\"reason\":\"" + json_escape(state.reason) + "\"}}";
+                }
+                if (result.size() > ipc::max_payload) { error(client, frame.request_id, 1003, "device response exceeds payload limit"); return; }
+                respond(client, {frame.type, frame.request_id, std::move(result)});
+                return;
+            }
             if (frame.type == static_cast<std::uint16_t>(ipc::Type::get_service_list)) {
                 if (client.service) { error(client, frame.request_id, 1002, "invalid message type"); return; }
                 payload.list_fields();
@@ -377,7 +511,10 @@ void IpcManager::serve() {
                     "\",\"heartbeat_time\":" + (status->heartbeat_time ? std::to_string(epoch_seconds(*status->heartbeat_time)) : "0") +
                     ",\"restart_count\":" + std::to_string(status->restart_count) + "}"});
             } else error(client, frame.request_id, 1002, "invalid message type");
-        } catch (const std::exception&) { error(client, frame.request_id, 1002, "invalid payload"); }
+        } catch (const std::exception&) {
+            error(client, frame.request_id, device_snapshot_request ? 1003 : 1002,
+                  device_snapshot_request ? "device snapshot unavailable" : "invalid payload");
+        }
     };
     while (running_) {
         epoll_event ready[32]{};
@@ -428,7 +565,7 @@ void IpcManager::serve() {
                     else { if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) closed = true; break; }
                 }
             }
-            if (closed || (client.input_closed && client.output.empty())) remove_client(fd);
+            if (closed || client.output_overflow || (client.input_closed && client.output.empty())) remove_client(fd);
             else {
                 epoll_event event{};
                 event.events = EPOLLRDHUP;
@@ -445,6 +582,36 @@ void IpcManager::serve() {
                 if (!peer.input_closed) event.events |= EPOLLIN;
                 event.data.fd = peer_fd;
                 ::epoll_ctl(epoll_fd_, EPOLL_CTL_MOD, peer_fd, &event);
+            }
+        }
+        // Only this epoll thread owns clients/output. Runtime callbacks enqueue copies.
+        std::deque<DeviceEvents::Record> changes;
+        std::uint64_t lost_through;
+        {
+            std::lock_guard<std::mutex> lock(device_events_->mutex);
+            changes.swap(device_events_->pending);
+            device_events_->bytes = 0;
+            lost_through = device_events_->lost_through;
+        }
+        for (auto it = clients.begin(); it != clients.end();) {
+            const int fd = it->first;
+            auto& client = it->second;
+            if (client.subscribed) {
+                if (client.subscribed_after < lost_through) client.output_overflow = true;
+                for (const auto& change : changes) {
+                    if (change.sequence <= client.subscribed_after) continue;
+                    respond(client, {static_cast<std::uint16_t>(ipc::Type::event), 0, change.payload});
+                    client.subscribed_after = change.sequence;
+                }
+            }
+            ++it;
+            if (client.output_overflow) { remove_client(fd); continue; }
+            if (!client.output.empty()) {
+                epoll_event event{};
+                event.events = EPOLLRDHUP | EPOLLOUT;
+                if (!client.input_closed) event.events |= EPOLLIN;
+                event.data.fd = fd;
+                ::epoll_ctl(epoll_fd_, EPOLL_CTL_MOD, fd, &event);
             }
         }
         for (auto it = pending_restarts.begin(); it != pending_restarts.end();) {

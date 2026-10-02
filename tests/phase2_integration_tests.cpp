@@ -360,7 +360,7 @@ void test_runtime_shutdown_respects_long_grace_period() {
     const auto requested = Clock::now();
     thread.finish();
     const auto status = manager.query("stubborn");
-    // Regression: run() currently waits only 4s, even for a 6s grace period.
+    // Regression for the former fixed 4s budget with a 6s grace period.
     // Keep the intended assertion; do not mark WILL_FAIL or relax the deadline.
     require(status && status->state == ServiceState::stopped && status->pid == -1,
             "RuntimeManager returned before shutdown_timeout escalation/reaping completed");

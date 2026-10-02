@@ -164,6 +164,67 @@ void test_policy_matrix_and_launch_failure() {
             "failed launches did not exhaust retry budget");
 }
 
+void test_terminal_failure_metadata_and_generations() {
+    Fixture f;
+    f.processes.fail_launches = true;
+    f.add("worker", RestartPolicy::on_failure);
+    f.services.startService("worker", f.base);
+    auto at = f.base;
+    for (const auto delay : {2s, 4s, 8s, 16s, 32s}) {
+        at += delay;
+        f.services.tick(at);
+    }
+    unsigned terminal = 0;
+    std::uint64_t previous = 0;
+    for (const auto& change : f.changes) {
+        require(change.generation > 0 && change.generation >= previous, "lifecycle token decreased");
+        previous = change.generation;
+        if (change.recovery_exhausted) {
+            ++terminal;
+            require(change.to == ServiceState::failed && change.generation == f.status("worker").generation,
+                    "terminal recovery metadata not attached to final failure");
+        }
+    }
+    require(terminal == 1 && f.status("worker").state == ServiceState::failed,
+            "restart exhaustion must produce exactly one terminal result");
+    const auto count = f.changes.size();
+    f.services.tick(at + 1h);
+    require(f.changes.size() == count, "terminal result repeated on tick");
+    const auto exhausted_generation = f.status("worker").generation;
+    f.services.stopService("worker", at + 1h);
+    require(f.status("worker").generation > exhausted_generation, "stop did not cancel old recovery token");
+
+    Fixture never;
+    never.processes.fail_launches = true;
+    never.add("worker", RestartPolicy::never);
+    never.services.startService("worker", never.base);
+    for (const auto& change : never.changes)
+        require(!change.recovery_exhausted, "never policy incorrectly reported exhausted recovery");
+}
+
+void test_shutdown_deadline_uses_all_service_grace_periods() {
+    Fixture f;
+    for (const auto& entry : std::vector<std::pair<std::string, std::chrono::seconds>>{{"short", 2s}, {"long", 6s}}) {
+        ServiceConfig config;
+        config.service_name = entry.first;
+        config.executable = "/fake/service";
+        config.shutdown_timeout = entry.second;
+        f.services.add(config);
+        f.services.startService(entry.first, f.base);
+    }
+    const auto at = f.base + 1s;
+    f.services.stop_all(at);
+    require(f.services.shutdown_deadline() == at + 6s, "shutdown budget ignored longest active service grace");
+    f.services.tick(at + 2s);
+    require(f.processes.forced == std::vector<int>{100}, "short service escalation deadline changed");
+    f.exit("short", at + 2s);
+    require(f.services.shutdown_deadline() == at + 6s, "remaining long service deadline lost");
+    f.services.tick(at + 6s);
+    require(f.processes.forced == std::vector<int>{100, 101}, "long service forced before its deadline");
+    f.exit("long", at + 6s);
+    require(!f.services.shutdown_deadline(), "reaped services retained shutdown deadlines");
+}
+
 void add_diamond(Fixture& f) {
     // Forward references, shared prerequisites and duplicate edges are supported.
     f.add("app", RestartPolicy::on_failure, {"left", "right"});
@@ -273,6 +334,8 @@ int main() {
         test_crash_backoff_and_limit();
         test_heartbeat_deadline_and_reaping();
         test_policy_matrix_and_launch_failure();
+        test_terminal_failure_metadata_and_generations();
+        test_shutdown_deadline_uses_all_service_grace_periods();
         test_dependency_order_and_shutdown();
         test_failure_propagation_and_recovery_cancellation();
         test_explicit_stop_and_blocked_launch();

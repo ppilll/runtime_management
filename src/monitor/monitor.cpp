@@ -1,14 +1,37 @@
 #include "runtime/monitor.hpp"
+#include <cmath>
 #include <stdexcept>
 #include <utility>
 #include <vector>
 
 namespace runtime {
 
-Monitor::Monitor(Sink sink, std::chrono::seconds interval)
-    : sink_(std::move(sink)), interval_(interval) {
+Monitor::Monitor(Sink sink, std::chrono::seconds interval, ResourceSink resources, ResourceThresholds thresholds)
+    : sink_(std::move(sink)), interval_(interval), resources_(std::move(resources)), thresholds_(thresholds) {
     if (!sink_ || interval_ <= std::chrono::seconds::zero())
         throw std::invalid_argument("monitor requires a sink and positive interval");
+    auto valid = [](double value) { return std::isfinite(value) && value > 0.0 && value <= 100.0; };
+    if (!valid(thresholds_.cpu_warning) || !valid(thresholds_.memory_warning) ||
+        !valid(thresholds_.memory_critical) || thresholds_.memory_warning >= thresholds_.memory_critical)
+        throw std::invalid_argument("invalid static resource thresholds");
+}
+
+void Monitor::report_resources(double cpu_percent, double memory_percent, Clock::time_point at) {
+    auto valid = [](double value) { return std::isfinite(value) && value >= 0.0 && value <= 100.0; };
+    if (!valid(cpu_percent) || !valid(memory_percent))
+        throw std::invalid_argument("resource percentages must be finite and within 0..100");
+    if (!resources_) throw std::logic_error("resource fact sink unavailable");
+    RuntimeEvent cpu{RuntimeEventType::resource_warning, {}, "cpu_monitor",
+                     "CPU usage=" + std::to_string(cpu_percent) + "%", at};
+    cpu.active = cpu_percent >= thresholds_.cpu_warning;
+    RuntimeEvent memory{RuntimeEventType::resource_warning, {}, "memory_monitor",
+                        "memory usage=" + std::to_string(memory_percent) + "%", at};
+    memory.active = memory_percent >= thresholds_.memory_warning;
+    memory.severity = memory_percent >= thresholds_.memory_critical ? ResourceSeverity::critical
+                                                                  : ResourceSeverity::warning;
+    // All input validation precedes publication. Sinks queue facts; do not write states.
+    resources_(std::move(cpu));
+    resources_(std::move(memory));
 }
 
 void Monitor::watch(const std::string& name, Clock::time_point now, std::chrono::seconds timeout) {

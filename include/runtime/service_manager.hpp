@@ -24,6 +24,7 @@ struct ServiceStatus {
     unsigned restart_count = 0;
     int pid = -1;
     std::optional<Clock::time_point> start_time;
+    std::uint64_t generation = 0;
 };
 
 struct ServiceStateChange {
@@ -31,6 +32,8 @@ struct ServiceStateChange {
     ServiceState from;
     ServiceState to;
     Clock::time_point at;
+    std::uint64_t generation = 0;
+    bool recovery_exhausted = false;
 };
 
 class ServiceManager {
@@ -58,6 +61,8 @@ public:
     std::optional<ServiceStatus> query(const std::string& name) const;
     std::vector<ServiceStatus> all_statuses() const;
     void stop_all(Clock::time_point now);
+    // Latest outstanding graceful-stop deadline; no independent fixed budget.
+    std::optional<Clock::time_point> shutdown_deadline() const;
 
 private:
     struct Service {
@@ -75,7 +80,8 @@ private:
     bool dependencies_running(const Service& service) const;
     void start_dependencies(const std::string& name, Clock::time_point now);
     void stop_dependents(const std::string& name, Clock::time_point now);
-    void transition(Service& service, ServiceState next, Clock::time_point at);
+    void transition(Service& service, ServiceState next, Clock::time_point at,
+                    bool recovery_exhausted = false);
     void dispatch_changes(std::vector<ServiceStateChange> changes) const;
     ProcessSupervisor& processes_;
     Monitor& monitor_;

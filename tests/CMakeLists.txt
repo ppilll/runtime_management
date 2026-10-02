@@ -2,6 +2,16 @@ add_executable(runtime_core_tests runtime_core_tests.cpp)
 target_link_libraries(runtime_core_tests PRIVATE runtime_core)
 add_test(NAME runtime_core_unit COMMAND runtime_core_tests)
 
+add_executable(device_state_manager_tests device_state_manager_tests.cpp)
+target_link_libraries(device_state_manager_tests PRIVATE runtime_core)
+add_test(NAME phase3_device_state_unit COMMAND device_state_manager_tests)
+set_tests_properties(phase3_device_state_unit PROPERTIES TIMEOUT 10)
+
+add_executable(event_aggregation_tests event_aggregation_tests.cpp)
+target_link_libraries(event_aggregation_tests PRIVATE runtime_core)
+add_test(NAME phase3_event_aggregation_unit COMMAND event_aggregation_tests)
+set_tests_properties(phase3_event_aggregation_unit PROPERTIES TIMEOUT 10)
+
 add_executable(recovery_dependency_tests recovery_dependency_tests.cpp)
 target_link_libraries(recovery_dependency_tests PRIVATE runtime_core)
 add_test(NAME recovery_dependency COMMAND recovery_dependency_tests)
@@ -24,3 +34,8 @@ target_link_libraries(ipc_integration_tests PRIVATE phase1_ipc)
 add_test(NAME phase1_ipc_integration COMMAND ipc_integration_tests
     $<TARGET_FILE:runtime_manager> $<TARGET_FILE:fake_service>)
 set_tests_properties(phase1_ipc_integration PROPERTIES TIMEOUT 90)
+
+add_executable(device_ipc_tests device_ipc_tests.cpp)
+target_link_libraries(device_ipc_tests PRIVATE phase1_ipc)
+add_test(NAME phase3_device_ipc COMMAND device_ipc_tests)
+set_tests_properties(phase3_device_ipc PROPERTIES TIMEOUT 30)
