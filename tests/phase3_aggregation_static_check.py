@@ -107,14 +107,20 @@ def check_event_and_aggregation_wiring():
     for snippet in ("aggregation_.add_service(config.service_name, config.autostart)",
                     "void RuntimeManager::post(RuntimeEvent event)", "envelope.runtime_event = std::move(event)",
                     "service_state_changed(change)", "aggregation_.handle(event)",
-                    "service_cause_->type == EventType::health_missed", "RuntimeEventType::heartbeat_timeout",
+                    "change.failure_type == FailureType::heartbeat_timeout", "RuntimeEventType::heartbeat_timeout",
                     "shutting_down_ = true;"):
         require(snippet in runtime, "missing runtime adapter: " + snippet)
-    require(re.search(r"services_\.handle\(event\);\s*service_cause_ = nullptr;", runtime),
-            "service cause is not scoped to accepted service handling")
-    require(re.search(r"services_\.tick\(Clock::now\(\)\);\s*dispatcher_\.drain\(\);", runtime),
-            "timer facts are not drained")
-    require(runtime.count("dispatcher_.drain();") == 2, "missing causal event drain")
+    # Phase4 captures cause/context in SM callbacks instead of a Runtime-local
+    # pointer. Check the replacement causal drain, retaining the fact adapter.
+    require("lifecycle_work_.push_back(change)" in runtime and
+            "auto change = std::move(lifecycle_work_.front())" in runtime and
+            "if (!shutting_down_) apply_change(change);" in runtime,
+            "captured lifecycle facts are not drained by the writer")
+    require(re.search(r"services_\.tick\(Clock::now\(\)\);\s*drain_work\(\);\s*"
+                      r"recovery_->tick\(Clock::now\(\)\);\s*drain_work\(\);", runtime),
+            "SM/RM timer facts are not causally drained")
+    require("dispatcher_.drain();" in runtime[runtime.index("void RuntimeManager::drain_work"):],
+            "missing dispatcher causal drain")
     cmake = read("CMakeLists.txt")
     require("src/runtime/service_aggregation.cpp" in cmake, "aggregation missing from runtime_core")
     tests = read("tests/CMakeLists.txt")

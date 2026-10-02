@@ -39,3 +39,13 @@ add_executable(device_ipc_tests device_ipc_tests.cpp)
 target_link_libraries(device_ipc_tests PRIVATE phase1_ipc)
 add_test(NAME phase3_device_ipc COMMAND device_ipc_tests)
 set_tests_properties(phase3_device_ipc PROPERTIES TIMEOUT 30)
+
+add_executable(recovery_manager_tests recovery_manager_tests.cpp)
+target_link_libraries(recovery_manager_tests PRIVATE runtime_core)
+add_test(NAME phase4_recovery_manager_unit COMMAND recovery_manager_tests)
+set_tests_properties(phase4_recovery_manager_unit PROPERTIES TIMEOUT 10)
+
+add_executable(recovery_coordination_tests recovery_coordination_tests.cpp)
+target_link_libraries(recovery_coordination_tests PRIVATE runtime_core)
+add_test(NAME phase4_recovery_coordination COMMAND recovery_coordination_tests)
+set_tests_properties(phase4_recovery_coordination PROPERTIES TIMEOUT 180)

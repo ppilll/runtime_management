@@ -25,7 +25,10 @@ struct ServiceStatus {
     int pid = -1;
     std::optional<Clock::time_point> start_time;
     std::uint64_t generation = 0;
+    std::uint64_t launched_generation = 0;
 };
+
+enum class ServiceChangeCause { lifecycle, failure, recovery_preparation, recovery_finalization, explicit_stop, dependency_stop };
 
 struct ServiceStateChange {
     std::string service_name;
@@ -33,10 +36,13 @@ struct ServiceStateChange {
     ServiceState to;
     Clock::time_point at;
     std::uint64_t generation = 0;
-    bool recovery_exhausted = false;
+    bool recovery_exhausted = false; // Deprecated source compatibility; never a policy/result input.
+    ServiceChangeCause cause = ServiceChangeCause::lifecycle;
+    std::optional<RecoveryOperation> operation;
+    std::optional<FailureType> failure_type;
 };
 
-class ServiceManager {
+class ServiceManager : public RecoveryExecutor {
 public:
     using StateChangeSink = std::function<void(const ServiceStateChange&)>;
     using RestartRequestSink = std::function<void(const std::string&)>;
@@ -63,22 +69,39 @@ public:
     void stop_all(Clock::time_point now);
     // Latest outstanding graceful-stop deadline; no independent fixed budget.
     std::optional<Clock::time_point> shutdown_deadline() const;
+    // T3 supplies RM's disposition for spontaneous exit. Default standalone
+    // behavior is clean -> STOPPED, abnormal -> FAILED, without automatic retry.
+    void handleProcessExit(const Event& event, ExitDisposition disposition);
+    std::optional<RecoveryExecutionSnapshot> snapshot(const std::string& name) const override;
+    RecoveryExecutionReply prepareRecovery(const RecoveryOperation&, unsigned, Clock::time_point) override;
+    bool recoveryReady(const RecoveryOperation&, Clock::time_point, const std::function<bool()>&) override;
+    RecoveryExecutionReply launchRecoveryAttempt(const RecoveryOperation&, std::uint64_t,
+        Clock::duration, Clock::time_point) override;
+    RecoveryExecutionReply finishRecoveryFailure(const RecoveryOperation&, std::uint64_t,
+        RecoveryTerminalReason, Clock::time_point) override;
+    void releaseRecovery(const std::string&, const RecoveryContext&) override;
+    void projectRestartCount(const std::string&, unsigned) override;
 
 private:
     struct Service {
         ServiceConfig config;
         ServiceStatus status;
         Clock::time_point started{};
-        std::optional<Clock::time_point> restart_at;
+        std::optional<RecoveryOperation> recovery;
+        ServiceChangeCause cause = ServiceChangeCause::lifecycle;
+        std::optional<FailureType> failure_type;
         std::optional<Clock::time_point> termination_deadline;
+        bool termination_requested = false; // Includes force-signalled, unreaped children.
     };
-    void start(Service& service, Clock::time_point now);
+    void start(Service& service, Clock::time_point now, std::optional<std::chrono::seconds> startup_cap = {});
     void stop(Service& service, Clock::time_point now);
-    void fail(Service& service, Clock::time_point now, const std::string& reason);
-    void process_exit(Service& service, const Event& event);
+    void fail(Service& service, Clock::time_point now, const std::string& reason,
+              FailureType type = FailureType::startup_failure);
+    void process_exit(Service& service, const Event& event, std::optional<ExitDisposition> disposition = {});
     std::vector<std::string> dependency_order() const; // Registry lock held.
     bool dependencies_running(const Service& service) const;
-    void start_dependencies(const std::string& name, Clock::time_point now);
+    void start_dependencies(const std::string& name, Clock::time_point now,
+                            std::optional<Clock::time_point> deadline = {}, const std::function<bool()>& gate = {});
     void stop_dependents(const std::string& name, Clock::time_point now);
     void transition(Service& service, ServiceState next, Clock::time_point at,
                     bool recovery_exhausted = false);

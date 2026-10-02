@@ -215,29 +215,29 @@ void test_ipc_extension_boundaries(const std::filesystem::path& base) {
         frame = request(fd, 6, 53, payload);
         require(frame.type == 6, "mock restart not acknowledged");
         frame = request(fd, 6, 54, payload);
-        require(frame.type == 6, "pending duplicate restart not acknowledged");
+        require(frame.type == 6, "duplicate restart not acknowledged");
         {
             std::lock_guard<std::mutex> lock(snapshot.mutex);
-            require(snapshot.events.size() == 1 && snapshot.events[0].type == runtime::EventType::stop,
-                    "pending restart was duplicated or START submitted before stop");
+            require(snapshot.events.size() == 2 &&
+                    snapshot.events[0].type == runtime::EventType::restart_request &&
+                    snapshot.events[1].type == runtime::EventType::restart_request &&
+                    snapshot.events[0].service_name == name && snapshot.events[1].service_name == name,
+                    "type6 did not route each request to the single RM entrypoint");
             snapshot.status.state = runtime::ServiceState::stopped;
             // A state label alone is insufficient: the old PID still exists.
         }
         frame = request(fd, 7, 55, "{}");
         {
             std::lock_guard<std::mutex> lock(snapshot.mutex);
-            require(snapshot.events.size() == 1, "restart did not wait for PID clearance");
+            require(snapshot.events.size() == 2, "query advanced a manual transaction");
             snapshot.status.pid = -1;
         }
         ::close(fd); fd = -1; // Accepted restart must survive control-client disconnect.
-        until([&] {
-            std::lock_guard<std::mutex> lock(snapshot.mutex);
-            return snapshot.events.size() == 2;
-        }, 3s, "restart did not submit START after old PID cleared");
         {
             std::lock_guard<std::mutex> lock(snapshot.mutex);
-            require(snapshot.events[1].type == runtime::EventType::start &&
-                    snapshot.events[1].service_name == name, "restart event ordering or service name");
+            require(snapshot.events.size() == 2 &&
+                    snapshot.events[1].type == runtime::EventType::restart_request,
+                    "disconnect cancelled accepted work or IPC synthesized START");
             snapshot.status.state = runtime::ServiceState::running;
             snapshot.status.pid = 456;
         }
@@ -251,6 +251,9 @@ void test_ipc_extension_boundaries(const std::filesystem::path& base) {
         {
             std::lock_guard<std::mutex> lock(snapshot.mutex);
             require(snapshot.events.size() == 4, "unexpected events before cancellation check");
+            require(snapshot.events[2].type == runtime::EventType::restart_request &&
+                    snapshot.events[3].type == runtime::EventType::stop,
+                    "restart/STOP order changed at the Runtime ingress");
             snapshot.status.state = runtime::ServiceState::stopped;
             snapshot.status.pid = -1;
             queries = snapshot.queries;
@@ -264,7 +267,7 @@ void test_ipc_extension_boundaries(const std::filesystem::path& base) {
         }, 3s, "mock IPC did not continue serving");
         {
             std::lock_guard<std::mutex> lock(snapshot.mutex);
-            require(snapshot.events.size() == 4, "STOP did not cancel pending restart");
+            require(snapshot.events.size() == 4, "IPC polling generated a second START or cancellation");
         }
         ::close(fd); fd = -1;
         ipc.stop();

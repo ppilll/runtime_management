@@ -221,15 +221,39 @@ ServiceConfig service(const Json& value) {
     config.startup_timeout = std::chrono::seconds(startup);
     config.heartbeat_timeout = std::chrono::seconds(heartbeat);
     config.shutdown_timeout = std::chrono::seconds(shutdown);
+    if (field(*object, "recovery_timeout"))
+        config.recovery_timeout = std::chrono::seconds(get<long long>(*object, "recovery_timeout", 0));
     const auto policy = get<std::string>(*object, "restart_policy", "never");
     if (policy == "never") config.restart_policy = RestartPolicy::never;
     else if (policy == "on-failure") config.restart_policy = RestartPolicy::on_failure;
     else if (policy == "always") config.restart_policy = RestartPolicy::always;
     else throw std::runtime_error("invalid restart_policy");
+    ConfigManager::validate(config);
     return config;
 }
 
 } // namespace
+
+void ConfigManager::validate(const ServiceConfig& config) {
+    if (config.service_name.empty() || config.executable.empty())
+        throw std::invalid_argument("service name and executable are required");
+    for (const auto timeout : {config.startup_timeout, config.shutdown_timeout, config.heartbeat_timeout})
+        if (timeout.count() < 1 || timeout.count() > 3600)
+            throw std::invalid_argument("timeouts must be between 1 and 3600 seconds");
+    if (config.recovery_timeout &&
+        (config.recovery_timeout->count() < 1 || config.recovery_timeout->count() > 86400))
+        throw std::invalid_argument("recovery_timeout must be between 1 and 86400 seconds");
+    if (config.restart_policy != RestartPolicy::never && config.restart_policy != RestartPolicy::on_failure &&
+        config.restart_policy != RestartPolicy::always)
+        throw std::invalid_argument("invalid restart_policy");
+}
+
+std::chrono::seconds ConfigManager::recoveryTimeout(const ServiceConfig& config) {
+    validate(config);
+    if (config.recovery_timeout) return *config.recovery_timeout;
+    // Operands were bounded before arithmetic: the maximum is 36089 seconds.
+    return std::chrono::seconds(63 + 5 * (config.shutdown_timeout.count() + config.startup_timeout.count() + 5) + 1);
+}
 
 std::vector<ServiceConfig> ConfigManager::load_file(const std::string& path) {
     std::ifstream input(path, std::ios::binary);

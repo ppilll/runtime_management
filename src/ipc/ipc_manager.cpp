@@ -347,9 +347,6 @@ void IpcManager::stop() {
 
 void IpcManager::serve() {
     std::unordered_map<int, Client> clients;
-    // Transport-side sequencing only: ServiceManager performs every lifecycle change.
-    // Pending manual requests are independent of the requesting connection's lifetime.
-    std::unordered_set<std::string> pending_restarts;
     auto remove_client = [&](int fd) {
         ::epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, fd, nullptr);
         ::close(fd);
@@ -371,26 +368,6 @@ void IpcManager::serve() {
                 respond(peer, {static_cast<std::uint16_t>(ipc::Type::event), 0,
                     "{\"event\":\"SERVICE_STOP\",\"service_name\":\"" + json_escape(name) + "\"}"});
         }
-    };
-    auto cancel_restarts = [&](const std::string& name) {
-        // An explicit STOP also stops dependents in ServiceManager. Do not let an
-        // earlier IPC restart of a dependent subsequently revive its prerequisite.
-        std::unordered_set<std::string> stopped{name};
-        bool changed;
-        do {
-            changed = false;
-            for (const auto& definition : definitions_) {
-                if (stopped.count(definition.service_name)) continue;
-                for (const auto& dependency : definition.dependency) {
-                    if (stopped.count(dependency)) {
-                        stopped.insert(definition.service_name);
-                        changed = true;
-                        break;
-                    }
-                }
-            }
-        } while (changed);
-        for (const auto& service_name : stopped) pending_restarts.erase(service_name);
     };
     auto handle = [&](Client& client, const ipc::Frame& frame) {
         bool device_snapshot_request = false;
@@ -492,17 +469,13 @@ void IpcManager::serve() {
                 respond(client, {frame.type, frame.request_id, "{\"result\":\"OK\",\"state\":\"STARTING\"}"});
             } else if (!client.service && frame.type == static_cast<std::uint16_t>(ipc::Type::stop)) {
                 payload.command_fields();
-                cancel_restarts(name);
                 notify_stop(name);
                 post_(Event{EventType::stop, name, Clock::now()});
                 respond(client, {frame.type, frame.request_id, "{\"result\":\"OK\"}"});
             } else if (!client.service && frame.type == static_cast<std::uint16_t>(ipc::Type::restart_service)) {
                 payload.command_fields();
-                if (pending_restarts.insert(name).second) {
-                    try { post_(Event{EventType::stop, name, Clock::now()}); }
-                    catch (...) { pending_restarts.erase(name); throw; }
-                    notify_stop(name);
-                }
+                post_(Event{EventType::restart_request, name, Clock::now()});
+                notify_stop(name);
                 respond(client, {frame.type, frame.request_id, "{\"result\":\"OK\"}"});
             } else if (!client.service && frame.type == static_cast<std::uint16_t>(ipc::Type::query_status)) {
                 payload.command_fields();
@@ -613,22 +586,6 @@ void IpcManager::serve() {
                 event.data.fd = fd;
                 ::epoll_ctl(epoll_fd_, EPOLL_CTL_MOD, fd, &event);
             }
-        }
-        for (auto it = pending_restarts.begin(); it != pending_restarts.end();) {
-            // A STOP followed immediately by START would be lost in STOPPING.
-            // Wait for the runtime's reaped-child snapshot before submitting START.
-            try {
-                const auto status = query_(*it);
-                if (!status) { it = pending_restarts.erase(it); continue; }
-                if (status->state == ServiceState::stopped && status->pid <= 0) {
-                    post_(Event{EventType::start, *it, Clock::now()});
-                    it = pending_restarts.erase(it);
-                    continue;
-                }
-            } catch (const std::exception&) {
-                // Retry callback failures on the next poll, preserving the request.
-            }
-            ++it;
         }
     }
     for (const auto& [fd, client] : clients) ::close(fd);

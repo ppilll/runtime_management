@@ -49,64 +49,85 @@ bool ServiceAggregation::handle(const RuntimeEvent& event) {
         if (!event.generation || *event.generation == 0 || *event.generation < health.generation) return false;
         const bool same_generation = *event.generation == health.generation;
         const bool unavailable = health.failed || health.stopped || health.heartbeat_lost;
+        const auto& context = event.recovery_context;
+        auto same_episode = [](const RecoveryContext& a, const RecoveryContext& b) {
+            return a.recovery_generation == b.recovery_generation &&
+                   a.initial_fault_generation == b.initial_fault_generation && a.origin == b.origin;
+        };
+        if (context && (context->recovery_generation == 0 || context->initial_fault_generation == 0 ||
+                        context->initial_fault_generation > *event.generation)) return false;
         switch (event.type) {
         case RuntimeEventType::service_started:
+            if (context) {
+                if (!health.recovery_context || !same_episode(*context, *health.recovery_context) ||
+                    !context->execution_generation || *context->execution_generation != *event.generation ||
+                    (same_generation && health.candidate_generation != event.generation)) return false;
+                health.generation = *event.generation;
+                health.recovery_context = context;
+                health.candidate_generation = event.generation;
+                // RUNNING is only an exec candidate. Preserve the fault/heartbeat latch.
+                break;
+            }
+            if (health.recovery_context) return false; // Ordinary START cannot bypass an active binding.
             if (same_generation) return health.running && !unavailable;
+            health.generation = *event.generation;
+            health.running = true;
+            health.failed = health.stopped = health.heartbeat_lost = health.recovering = false;
+            health.candidate_generation.reset();
             break;
         case RuntimeEventType::service_failed:
-            if (same_generation) return health.failed && !health.heartbeat_lost;
-            break;
         case RuntimeEventType::heartbeat_timeout:
-            if (same_generation) return health.heartbeat_lost;
+            if (same_generation) return event.type == RuntimeEventType::heartbeat_timeout ? health.heartbeat_lost
+                                                                                         : health.failed && !health.heartbeat_lost;
+            if (context && health.recovery_context && !same_episode(*context, *health.recovery_context)) return false;
+            health.generation = *event.generation;
+            device_recovering_ = false;
+            health.running = false;
+            health.failed = true;
+            if (event.type == RuntimeEventType::heartbeat_timeout) health.heartbeat_lost = true;
+            health.candidate_generation.reset();
+            if (context) health.recovery_context = context; // Bound attempt failure retains its episode.
+            else {
+                health.recovery_context.reset();
+                health.recovering = false;
+            }
             break;
         case RuntimeEventType::service_stopped:
             if (same_generation) return health.stopped;
-            break;
-        case RuntimeEventType::recovery_start:
-        case RuntimeEventType::recovery_failed:
-            if (!same_generation || !unavailable) return false;
-            break;
-        case RuntimeEventType::recovery_success:
-            if (!same_generation) return false;
-            if (!unavailable) return health.running; // Idempotent success, no new transition.
-            // An explicit stop cancels recovery, even for a matching token.
-            if (health.stopped && !health.recovering) return false;
-            break;
-        default: return false;
-        }
-        health.generation = *event.generation;
-        switch (event.type) {
-        case RuntimeEventType::service_started:
-        case RuntimeEventType::recovery_success:
-            health.running = true;
-            health.failed = health.stopped = health.heartbeat_lost = health.recovering = false;
-            break;
-        case RuntimeEventType::service_failed:
-            device_recovering_ = false;
-            health.running = false;
-            health.failed = true;
-            health.recovering = false;
-            break;
-        case RuntimeEventType::service_stopped:
+            health.generation = *event.generation;
             health.running = false;
             health.stopped = true;
             health.recovering = false;
-            // Do not clear failure/timeout merely because its process was stopped.
-            break;
-        case RuntimeEventType::heartbeat_timeout:
-            device_recovering_ = false;
-            health.running = false;
-            health.heartbeat_lost = health.failed = true;
-            health.recovering = false;
+            health.candidate_generation.reset();
+            health.recovery_context = context;
             break;
         case RuntimeEventType::recovery_start:
-            if (!health.failed && !health.stopped && !health.heartbeat_lost) return false;
+            if (!same_generation || !unavailable) return false;
+            if (!context || context->origin != RecoveryOrigin::automatic_failure || context->execution_generation)
+                return false;
+            if (health.recovery_context && !same_episode(*context, *health.recovery_context)) return false;
+            health.recovery_context = context;
             health.recovering = true;
             break;
+        case RuntimeEventType::recovery_success:
+            if (!same_generation) return false;
+            if (!context || !health.recovery_context || !same_episode(*context, *health.recovery_context) ||
+                context->execution_generation != health.recovery_context->execution_generation ||
+                !context->execution_generation || health.candidate_generation != event.generation) return false;
+            health.running = true;
+            health.failed = health.stopped = health.heartbeat_lost = health.recovering = false;
+            health.recovery_context.reset();
+            health.candidate_generation.reset();
+            break;
         case RuntimeEventType::recovery_failed:
+            if (!same_generation || !unavailable) return false;
+            if (!context || !health.recovery_context || !same_episode(*context, *health.recovery_context) ||
+                context->execution_generation != health.recovery_context->execution_generation) return false;
             health.running = false;
             health.failed = true;
             health.recovering = false;
+            health.recovery_context.reset();
+            health.candidate_generation.reset();
             if (health.policy.criticality == ServiceCriticality::high || health.heartbeat_lost)
                 recovery_failed_ = true;
             break;
@@ -115,6 +136,57 @@ bool ServiceAggregation::handle(const RuntimeEvent& event) {
     }
     reconcile(event);
     return true;
+}
+
+bool ServiceAggregation::bind_recovery(const std::string& name, std::uint64_t generation,
+        const RecoveryContext& context, bool recovering, Clock::time_point at) {
+    const auto found = services_.find(name);
+    if (found == services_.end() || generation == 0 || context.recovery_generation == 0 ||
+        context.initial_fault_generation == 0 || context.initial_fault_generation > generation) return false;
+    auto& health = found->second;
+    if (health.generation != generation) return false;
+    const bool existing = health.recovery_context &&
+        health.recovery_context->recovery_generation == context.recovery_generation &&
+        health.recovery_context->initial_fault_generation == context.initial_fault_generation &&
+        health.recovery_context->origin == context.origin;
+    if (health.recovery_context && !existing &&
+        context.recovery_generation <= health.recovery_context->recovery_generation) return false;
+    health.recovery_context = context;
+    // First automatic admission is announced by the canonical START receipt.
+    health.recovering = recovering && existing && context.origin == RecoveryOrigin::automatic_failure;
+    health.candidate_generation.reset();
+    if (recovering && existing)
+        reconcile(RuntimeEvent{RuntimeEventType::recovery_start, name, "recovery_manager", "captured recovery binding", at});
+    return true;
+}
+
+void ServiceAggregation::cancel_recovery(const std::string& name, const RecoveryContext& context, Clock::time_point at) {
+    const auto found = services_.find(name);
+    if (found == services_.end() || !found->second.recovery_context) return;
+    auto& health = found->second;
+    const auto& active = *health.recovery_context;
+    if (active.recovery_generation != context.recovery_generation ||
+        active.initial_fault_generation != context.initial_fault_generation || active.origin != context.origin) return;
+    health.recovery_context.reset();
+    health.candidate_generation.reset();
+    health.recovering = false;
+    reconcile(RuntimeEvent{RuntimeEventType::service_stopped, name, "recovery_manager", "recovery cancelled", at});
+}
+
+bool ServiceAggregation::complete_manual(const RecoveryResult& result) {
+    if (result.origin != RecoveryOrigin::manual_restart) return false;
+    const RecoveryContext context{result.recovery_generation, result.initial_fault_generation,
+                                  result.execution_generation, result.origin};
+    if (result.outcome != RecoveryOutcome::success) {
+        cancel_recovery(result.service_name, context, result.completed_at);
+        return true;
+    }
+    RuntimeEvent event{RuntimeEventType::recovery_success, result.service_name,
+        "recovery_manager", "manual transaction completed", result.completed_at};
+    event.generation = result.execution_generation;
+    event.recovery_context = context;
+    // Writer-local completion only; no automatic recovery trio is published.
+    return handle(event);
 }
 
 DeviceState ServiceAggregation::evaluate() const {

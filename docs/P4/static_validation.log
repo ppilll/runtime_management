@@ -1,0 +1,71 @@
+T4 final static validation: 2026-10-02 (Asia/Shanghai)
+Platform: Windows-11-10.0.22631-SP0
+Python: 3.12.14
+No compiler, CMake, CTest, C++ program, child or socket tests invoked.
+
+COMMAND: C:\Users\Liu\.local\share\liepin-cli\.venv\Scripts\python.exe -B tests/phase3_validation_static_check.py
+EXIT STATUS: 0
+CHECK: Phase2
+PASS: 38 C++ files; local includes, delimiters, comments/literals, conflict markers
+PASS: 112 test functions invoked by main; 10 targets, 11 CTest entries
+PASS: added test/checker/report whitespace and final newlines
+LIMIT: source structure only; C++ type/link correctness and runtime behavior are unverified
+CHECK: Phase3 state
+PASS: 38 C++ files; local includes, delimiters, comments/literals, conflict markers
+PASS: 112 test functions invoked by main; 10 targets, 11 CTest entries
+PASS: seven states, nine documented table edges; matrix has 9 allowed / 54 undefined pairs
+PASS: 7 paths through the extracted table, including boot, error and recovery entry
+PASS: internal ownership/query/event wiring; task artifacts whitespace and final newlines
+LIMIT: source-only validation; C++ compilation, runtime behavior and concurrency are unverified
+CHECK: Phase3 aggregation
+PASS: 38 C++ files; 112 test functions; 10 targets, 11 CTest entries
+PASS: eight internal event types/labels; static criticality, priority and runtime adapter structure
+PASS: nine original plus 15 aggregate triples (24 total); 9 extracted-table scenario paths
+PASS: four requested C++ scenarios registered; dispatcher FIFO structure; artifact whitespace
+LIMIT: source/contract checks only; C++ execution, types/linking and concurrency remain unverified
+CHECK: Phase3 IPC
+PASS: 38 C++ files; includes, delimiters, literals and conflict markers
+PASS: 112 test functions invoked by main; 10 targets, 11 CTest entries
+PASS: unchanged legacy types/frame sizes; three new requests; 4 valid JSON examples
+PASS: runtime query/sink wiring, subscription sequence boundary, bounded queues and gap disconnect
+PASS: task artifact whitespace/final newlines and Python syntax
+LIMIT: source only; C++ types/linking, socket behavior and concurrency are unverified
+PASS: explicit-target test declares 441 triples: 24 allowed / 417 rejected
+PASS: full boot/critical recovery and all three service heartbeat recovery scenarios declared
+PASS: Thread4 artifacts (including untracked files), Python syntax and existing test registration
+PASS: four review fixes and health-query wiring; 11 remediation tests declared and invoked
+LIMIT: source/contract checks only; C++ behavior/concurrency unverified; remediation details in review_fixes.md
+
+
+COMMAND: C:\Users\Liu\.local\share\liepin-cli\.venv\Scripts\python.exe -B tests/phase4_static_check.py
+EXIT STATUS: 0
+PASS (static): 38 C++ files, 112 main-wired tests, 10 targets/11 CTest entries
+PASS (static): 17 frozen files, original six-second/PID/reap regression and old registrations
+PASS (static): single policy owner, captured bridge, cancellation/timeout/ingress and IPC contracts
+PASS (static): P4-01..32 plus P4-19b map to 43 assertion-bearing test functions; 441 target triples retained
+LIMIT: source-only evidence; no C++ compilation, runtime tests, concurrency or ARM64 verification
+
+
+COMMAND: git diff --check
+EXIT STATUS: 0
+
+warning: in the working copy of 'CMakeLists.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'include/runtime/config_manager.hpp', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'include/runtime/event.hpp', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'include/runtime/monitor.hpp', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'include/runtime/runtime_manager.hpp', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'include/runtime/service_aggregation.hpp', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'include/runtime/service_manager.hpp', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/config/config_manager.cpp', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/ipc/ipc_manager.cpp', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/monitor/monitor.cpp', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/runtime/runtime_manager.cpp', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/runtime/service_aggregation.cpp', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/CMakeLists.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/device_ipc_tests.cpp', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/event_aggregation_tests.cpp', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/ipc_integration_tests.cpp', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/phase3_aggregation_static_check.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/phase3_validation_static_check.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/runtime_core_tests.cpp', LF will be replaced by CRLF the next time Git touches it
+

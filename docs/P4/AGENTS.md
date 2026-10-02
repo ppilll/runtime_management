@@ -1,0 +1,13 @@
+# Phase4 Agent Rules
+- 开发任务须显式读取本文件及README、CHANGE_LIST、对应设计文档；本文件自动作用域仅docs/P4，include/src任务由提示词引用这些约束。
+- RecoveryManager是唯一retry/backoff/recovery_timeout/terminal owner；不得保留SM legacy retry、Runtime推导第二份terminal或IPC pending restart poll。
+- ServiceManager唯一写ServiceState/PID/lifecycle generation；RM唯一发recovery_generation；DSM唯一写DeviceState。结果不得用timestamp判正确性或完成时query新token给旧结果补标签。
+- 复用既有Runtime writer/Clock/队列/tick，无新增recovery线程。dispatcher callback只能追加work，不递归改生命周期。
+- 自动五次累计reservation，2/4/8/16/32s，无success/manual reset；manual事务不占auto预算。recovery_timeout是唯一新增策略JSON字段。
+- 保留P3状态表、Unix socket10字节帧/64KiB/types1..10/255、旧命令/错误/通知格式，不加GET_RECOVERY_STATUS。
+- 只改CHANGE_LIST中对应任务允许路径；头文件继续include/runtime，IPC头文件继续src/ipc。源码src、tests测试、文档docs/P4；不创建include/service或include/ipc新树。
+- 保留所有旧测试目标及phase2_runtime_shutdown_regression；不得DISABLED/WILL_FAIL、削弱六秒/PID/reap断言或删静态检查来掩盖迁移失败。
+- 禁止业务实现、完整资源采集、动态配置、cloud/MQTT/DB/Web、gRPC/Boost.Asio/大型状态机/workflow框架、自动Runtime restart或device reboot。
+- 后续实现使用Linux既有构建：cmake -S . -B build -DBUILD_TESTING=ON；cmake --build build；ctest --test-dir build --output-on-failure。静态：python3 -B tests/phase3_validation_static_check.py、python3 -B tests/phase4_static_check.py、git diff --check。ARM64使用部署已有toolchain，不在host直接执行ARM64 binary。
+- 每线程报告必须区分Implemented、Statically Verified、Runtime Verified、Not Verified，静态结构或源码存在不能写运行PASS。
+- 文档设计阶段禁止生成/修改C++；codex_package中的实现任务只在后续明确进入实现时执行，不由设计包生成动作自动启动。

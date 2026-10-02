@@ -28,6 +28,11 @@ public:
     void add_service(const std::string& name, bool autostart = false);
     bool handle(const RuntimeEvent& event); // False for invalid metadata/type/service.
     void refresh(Clock::time_point at = Clock::now());
+    // Writer-only captured binding updates; these do not publish recovery events.
+    bool bind_recovery(const std::string& name, std::uint64_t generation,
+                       const RecoveryContext& context, bool recovering, Clock::time_point at);
+    void cancel_recovery(const std::string& name, const RecoveryContext& context, Clock::time_point at);
+    bool complete_manual(const RecoveryResult& result);
 
 private:
     struct Health {
@@ -38,6 +43,8 @@ private:
         bool heartbeat_lost = false;
         bool recovering = false;
         std::uint64_t generation = 0;
+        std::optional<RecoveryContext> recovery_context;
+        std::optional<std::uint64_t> candidate_generation;
     };
     DeviceState evaluate() const;
     void reconcile(const RuntimeEvent& event);

@@ -1,15 +1,19 @@
 #include "../src/ipc/frame.hpp"
 #include "../src/ipc/ipc_manager.hpp"
 #include "runtime/device_state_manager.hpp"
+#include "runtime/runtime_manager.hpp"
 #include <cerrno>
 #include <chrono>
 #include <condition_variable>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
+#include <exception>
 #include <iostream>
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 #include <sys/socket.h>
@@ -415,6 +419,71 @@ void test_optional_device_callback_and_sink_lifetime(const Directory& directory)
     }
     sink(runtime::DeviceStateSnapshot{}); // Must not access the destroyed manager.
 }
+
+void test_real_recovery_terminal_reaches_device_subscription(const Directory& directory) {
+    const auto config_path = directory.path("real-recovery.json");
+    {
+        std::ofstream config(config_path);
+        config << R"({"service_name":"control_service","executable":"/missing/phase4/ipc-service","autostart":false,"restart_policy":"on-failure","recovery_timeout":1})";
+        require(static_cast<bool>(config), "cannot write real IPC recovery config");
+    }
+    runtime::IpcManager::DeviceStateSink sink;
+    runtime::RuntimeManager manager(config_path, {}, [&](const runtime::DeviceStateSnapshot& state) {
+        if (sink) sink(state);
+    });
+    const auto definitions = runtime::ConfigManager::load_file(config_path);
+    runtime::IpcManager ipc(directory.path("real-c.sock"), directory.path("real-s.sock"),
+        [&](runtime::Event event) { manager.post(std::move(event)); },
+        [&](const std::string& name) { return manager.query(name); }, definitions,
+        [&] { return manager.queryDeviceState(); });
+    sink = ipc.device_state_sink();
+    ipc.start();
+    Socket subscriber(directory.path("real-c.sock"));
+    Socket commands(directory.path("real-c.sock"));
+    require(request(subscriber.fd, 10, 501, R"({"event":"DEVICE_STATE_CHANGED"})").type == 10,
+            "real recovery subscription ACK");
+    struct Writer {
+        runtime::RuntimeManager& manager;
+        std::exception_ptr error;
+        std::thread thread;
+        explicit Writer(runtime::RuntimeManager& runtime_manager) : manager(runtime_manager), thread([this] {
+            try { manager.run(); } catch (...) { error = std::current_exception(); }
+        }) {}
+        void finish() {
+            manager.post(runtime::Event{runtime::EventType::shutdown, {}, runtime::Clock::now()});
+            if (thread.joinable()) thread.join();
+            if (error) std::rethrow_exception(error);
+        }
+        ~Writer() {
+            manager.post(runtime::Event{runtime::EventType::shutdown, {}, runtime::Clock::now()});
+            if (thread.joinable()) thread.join();
+        }
+    } writer(manager); // Joins before sockets, IPC callback queue and Runtime destruction.
+    auto notification = receive(subscriber.fd);
+    require(notification.type == 5 && notification.request_id == 0 &&
+            notification.payload.find("\"state\":\"READY\"") != std::string::npos, "real initialization notification");
+    const auto ack = request(commands.fd, 1, 502, R"({"service_name":"control_service"})");
+    require(ack.type == 1 && ack.payload == R"({"result":"OK","state":"STARTING"})", "START ACK format changed");
+    for (const auto* expected : {"ERROR", "RECOVERING", "OFFLINE"}) {
+        notification = receive(subscriber.fd);
+        require(notification.type == 5 && notification.request_id == 0 &&
+                notification.payload.find(R"("event":"DEVICE_STATE_CHANGED")") != std::string::npos &&
+                notification.payload.find(std::string("\"state\":\"") + expected + "\"") != std::string::npos,
+                "real recovery chain missing/reordered at the socket");
+    }
+    require(notification.payload.find("\"source\":\"recovery_manager\"") != std::string::npos &&
+            notification.payload.find("recovery timeout") != std::string::npos,
+            "terminal notification did not originate in RM execution/finalization");
+    require(request(commands.fd, 8, 503, "{}").payload.find("\"state\":\"OFFLINE\"") != std::string::npos &&
+            manager.query("control_service")->restart_count == 1, "query differs from the real terminal receipt");
+    writer.finish();
+    require(manager.query("control_service")->pid == -1 &&
+            manager.queryDeviceState().current == runtime::DeviceState::offline, "shutdown lost terminal snapshot/reap");
+    // All notifications were consumed: the next frame must be this request's
+    // response, proving no duplicate terminal was queued to this subscriber.
+    require(request(subscriber.fd, 8, 504, "{}").type == 8, "duplicate terminal notification emitted");
+    ipc.stop();
+}
 } // namespace
 
 int main() {
@@ -426,6 +495,7 @@ int main() {
         test_running_health_requires_confirmed_heartbeats(directory);
         test_producer_overflow_disconnect_and_resubscribe(directory);
         test_unread_client_output_bound(directory);
+        test_real_recovery_terminal_reaches_device_subscription(directory);
         std::cout << "Phase3 device IPC tests passed\n";
         return 0;
     } catch (const std::exception& error) {

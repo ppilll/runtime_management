@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -21,11 +22,15 @@ struct ServiceConfig {
     std::vector<std::string> environment; // KEY=VALUE entries
     std::string working_directory;
     std::chrono::seconds shutdown_timeout{2};
+    std::optional<std::chrono::seconds> recovery_timeout;
 };
 
 class ConfigManager {
 public:
     static std::vector<ServiceConfig> load_file(const std::string& path);
+    // Shared by JSON, ServiceManager registration and RecoveryManager.
+    static void validate(const ServiceConfig& config);
+    static std::chrono::seconds recoveryTimeout(const ServiceConfig& config);
 };
 
 } // namespace runtime

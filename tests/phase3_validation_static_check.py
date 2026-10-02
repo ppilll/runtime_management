@@ -124,12 +124,20 @@ def check_review_fixes():
         require(snippet in monitor, "resource producer wiring missing: " + snippet)
     service = masked_source(read("src/service/service_manager.cpp"))
     for snippet in ("++service.status.generation", "service.status.generation, recovery_exhausted",
-                    "service.config.restart_policy != RestartPolicy::never",
-                    "service.status.restart_count >= maximum_restarts", "ServiceManager::shutdown_deadline() const",
+                    "ServiceManager::finishRecoveryFailure", "ServiceChangeCause::recovery_finalization",
+                    "ServiceManager::shutdown_deadline() const",
                     "*service.termination_deadline > *latest"):
         require(snippet in service, "lifecycle remediation missing: " + snippet)
+    # P3 exhaustion migrated to RM; do not remove the terminal-chain audit.
+    recovery = masked_source(read("src/runtime/recovery_manager.cpp"))
+    for snippet in ("definition.restart_policy == RestartPolicy::never",
+                    "slot.attempts_reserved_total >= maximum_reservations",
+                    "RecoveryTerminalReason::retry_exhausted", "writer_executor_->finishRecoveryFailure",
+                    "slot.active->latest_fault_generation = reply.captured.generation", "finishLocked(slot, resultFor"):
+        require(snippet in recovery, "RM terminal remediation missing: " + snippet)
     runtime = masked_source(read("src/runtime/runtime_manager.cpp"))
-    for snippet in ("event.generation = change.generation", "if (change.recovery_exhausted)",
+    for snippet in ("event.generation = change.generation", "change.cause == ServiceChangeCause::recovery_finalization",
+                    "for (const auto& result : recovery_->takeResults())",
                     "RuntimeEventType::recovery_failed", "services_.shutdown_deadline().value_or(Clock::now())",
                     "if (!active) break;", "if (Clock::now() >= deadline)", "std::rethrow_exception(failure)",
                     "monitor_.report_resources(cpu_percent, memory_percent, at)"):

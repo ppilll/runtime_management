@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <array>
 #include <filesystem>
+#include <deque>
+#include <memory>
 #include <fstream>
 #include <iostream>
 #include <map>
@@ -29,6 +31,8 @@ struct Fixture {
     DeviceStateManager states{[this](const DeviceStateSnapshot& state) { changes.push_back(state); }, base};
     ServiceAggregation aggregation;
     std::map<std::string, std::uint64_t> generations;
+    std::map<std::string, RecoveryContext> contexts;
+    std::map<std::string, std::uint64_t> episodes;
 
     explicit Fixture(AggregationOptions options = {}) : aggregation(states, std::move(options)) {
         aggregation.add_service("control_service");
@@ -40,12 +44,29 @@ struct Fixture {
     void send(RuntimeEventType type, const std::string& name) {
         auto event = fact(type, name);
         if (!name.empty()) {
-            if (type == RuntimeEventType::service_started || type == RuntimeEventType::service_failed ||
-                type == RuntimeEventType::service_stopped || type == RuntimeEventType::heartbeat_timeout)
+            if (type == RuntimeEventType::recovery_start) {
+                contexts[name] = RecoveryContext{++episodes[name], generations[name], {}, RecoveryOrigin::automatic_failure};
+                event.recovery_context = contexts[name];
+            } else if (type == RuntimeEventType::recovery_success) {
+                if (!contexts.count(name)) send(RuntimeEventType::recovery_start, name);
+                auto& context = contexts[name];
+                context.execution_generation = ++generations[name];
+                auto candidate = fact(RuntimeEventType::service_started, name);
+                candidate.generation = generations[name];
+                candidate.recovery_context = context;
+                require(aggregation.handle(candidate), "candidate rejected");
+                event.recovery_context = context;
+            } else if (type == RuntimeEventType::recovery_failed) {
+                event.recovery_context = contexts.at(name);
+            } else {
                 ++generations[name];
+                contexts.erase(name);
+            }
             event.generation = generations[name];
         }
         require(aggregation.handle(event), "health event rejected");
+        if (type == RuntimeEventType::recovery_success || type == RuntimeEventType::recovery_failed)
+            contexts.erase(name);
     }
     void running() {
         send(RuntimeEventType::service_started, "control_service");
@@ -108,8 +129,10 @@ void test_heartbeat_timeout_and_successful_recovery() {
                 fixture.changes[1].previous == DeviceState::error &&
                 fixture.changes[2].previous == DeviceState::recovering,
                 "heartbeat recovery path or notification count changed");
-        fixture.send(RuntimeEventType::recovery_success, name);
-        require(fixture.changes.size() == 3, "duplicate recovery success notified again");
+        auto duplicate = fact(RuntimeEventType::recovery_success, name);
+        duplicate.generation = fixture.generations[name];
+        require(!fixture.aggregation.handle(duplicate) && fixture.changes.size() == 3,
+                "unbound duplicate recovery success changed the snapshot");
     }
 }
 
@@ -190,7 +213,7 @@ void test_heartbeat_stopped_and_recovery_failure() {
     fixture.expect(DeviceState::recovering);
     fixture.send(RuntimeEventType::recovery_failed, "vision_service");
     fixture.expect(DeviceState::offline);
-    fixture.send(RuntimeEventType::recovery_success, "vision_service");
+    fixture.send(RuntimeEventType::service_started, "vision_service");
     fixture.expect(DeviceState::offline);
 }
 
@@ -206,7 +229,7 @@ void test_optional_recovery_failure_and_resource_sources() {
     auto memory = cpu;
     memory.source = "memory_monitor";
     require(fixture.aggregation.handle(cpu) && fixture.aggregation.handle(memory), "resource warning rejected");
-    fixture.send(RuntimeEventType::recovery_success, "ota_service");
+    fixture.send(RuntimeEventType::service_started, "ota_service");
     fixture.expect(DeviceState::warning);
     cpu.active = false;
     require(fixture.aggregation.handle(cpu), "resource clear rejected");
@@ -293,7 +316,8 @@ void test_stale_recovery_generation_rejected() {
     fixture.send(RuntimeEventType::recovery_start, "control_service");
     auto old = fact(RuntimeEventType::recovery_success, "control_service");
     old.generation = fixture.generations["control_service"];
-    fixture.send(RuntimeEventType::service_failed, "control_service"); // A newer fault B.
+    old.recovery_context = fixture.contexts.at("control_service");
+    fixture.send(RuntimeEventType::service_failed, "control_service"); // Independent newer fault B.
     const auto before = fixture.states.query();
     const auto notifications = fixture.changes.size();
     for (const auto type : {RuntimeEventType::recovery_success, RuntimeEventType::recovery_start,
@@ -310,15 +334,29 @@ void test_stale_recovery_generation_rejected() {
     require(after.current == before.current && after.previous == before.previous &&
             after.source == before.source && after.reason == before.reason && after.timestamp == before.timestamp &&
             fixture.changes.size() == notifications, "rejected token mutated snapshot or notified");
-    old.generation = fixture.generations["control_service"];
-    old.at = base - 1s; // Token correctness, not timestamp ordering, controls acceptance.
-    require(fixture.aggregation.handle(old), "matching recovery token rejected");
+    fixture.send(RuntimeEventType::recovery_start, "control_service");
+    auto candidate = fact(RuntimeEventType::service_started, "control_service");
+    candidate.generation = ++fixture.generations["control_service"];
+    auto context = fixture.contexts.at("control_service");
+    context.execution_generation = candidate.generation;
+    candidate.recovery_context = context;
+    require(fixture.aggregation.handle(candidate), "captured candidate rejected");
+    fixture.expect(DeviceState::recovering); // Exec alone cannot clear the fault.
+    old.generation = candidate.generation;
+    old.recovery_context = context;
+    old.at = base - 1s;
+    auto wrong = old;
+    ++wrong.recovery_context->recovery_generation;
+    require(!fixture.aggregation.handle(wrong), "wrong episode accepted");
+    wrong = old;
+    wrong.recovery_context->execution_generation.reset();
+    require(!fixture.aggregation.handle(wrong), "missing execution token accepted");
+    require(fixture.aggregation.handle(old), "matching captured recovery rejected");
     fixture.expect(DeviceState::running);
     const auto count = fixture.changes.size();
-    require(fixture.aggregation.handle(old) && fixture.changes.size() == count, "duplicate result notified again");
+    require(!fixture.aggregation.handle(old) && fixture.changes.size() == count, "duplicate result notified again");
     fixture.send(RuntimeEventType::service_failed, "control_service");
     fixture.send(RuntimeEventType::recovery_start, "control_service");
-    old.generation = fixture.generations["control_service"];
     fixture.send(RuntimeEventType::service_stopped, "control_service");
     require(!fixture.aggregation.handle(old), "cancelled recovery revived stopped service");
     fixture.expect(DeviceState::error);
@@ -348,33 +386,70 @@ void test_lifecycle_retry_exhaustion_reaches_device_state() {
                 require(aggregation.handle(event), "lifecycle fact rejected by aggregation");
                 if (event.type == RuntimeEventType::recovery_failed) ++terminal;
             });
-            ServiceManager services(processes, monitor, logger, [&](const ServiceStateChange& change) {
-                auto emit = [&](RuntimeEventType type) {
-                    auto event = fact(type, change.service_name);
-                    event.generation = change.generation;
-                    event.at = change.at;
-                    dispatcher.publish(std::move(event));
-                };
-                if (change.to == ServiceState::failed) {
-                    emit(RuntimeEventType::service_failed);
-                    if (change.recovery_exhausted) emit(RuntimeEventType::recovery_failed);
-                } else if (change.to == ServiceState::recovering) {
-                    emit(RuntimeEventType::recovery_start);
-                }
-            });
+            std::deque<ServiceStateChange> work;
+            ServiceManager services(processes, monitor, logger,
+                [&](const ServiceStateChange& change) { work.push_back(change); });
             ServiceConfig config;
             config.service_name = name;
             config.executable = "/fake/service";
             config.restart_policy = policy;
             services.add(config);
             auto at = Clock::now();
+            RecoveryManager recovery(std::vector<ServiceConfig>{config}, services, [&] { return at; });
+            auto drain = [&] {
+                while (!work.empty()) {
+                    const auto change = work.front();
+                    work.pop_front();
+                    if (change.to == ServiceState::failed) {
+                        auto event = fact(RuntimeEventType::service_failed, name);
+                        event.generation = change.generation;
+                        if (change.operation) event.recovery_context = change.operation->context;
+                        dispatcher.publish(event);
+                        dispatcher.drain();
+                        if (change.cause == ServiceChangeCause::recovery_finalization) {
+                            aggregation.bind_recovery(name, change.generation, change.operation->context, false, at);
+                        } else if (!change.operation) {
+                            RecoveryRequest request;
+                            request.service_name = name;
+                            request.service_generation = change.generation;
+                            request.failure_type = *change.failure_type;
+                            request.reason = "captured initial failure";
+                            recovery.submit(request, at);
+                        }
+                        // RM tick already consumes its synchronous failed reply.
+                    } else if (change.to == ServiceState::recovering) {
+                        aggregation.bind_recovery(name, change.generation, change.operation->context, true, at);
+                    }
+                }
+                for (const auto& start : recovery.takeStarts()) {
+                    auto event = fact(RuntimeEventType::recovery_start, name);
+                    event.generation = start.generation;
+                    event.recovery_context = start.context;
+                    dispatcher.publish(event);
+                }
+                dispatcher.drain();
+                for (const auto& result : recovery.takeResults()) {
+                    auto event = fact(RuntimeEventType::recovery_failed, name);
+                    event.generation = result.latest_fault_generation;
+                    event.recovery_context = RecoveryContext{result.recovery_generation,
+                        result.initial_fault_generation, result.execution_generation, result.origin};
+                    aggregation.bind_recovery(name, result.latest_fault_generation, *event.recovery_context, false, at);
+                    dispatcher.publish(event);
+                }
+                dispatcher.drain();
+            };
             services.startService(name, at);
-            dispatcher.drain();
+            drain();
             for (const auto delay : {2s, 4s, 8s, 16s, 32s}) {
                 at += delay;
                 services.tick(at);
-                dispatcher.drain();
+                recovery.tick(at);
+                drain();
             }
+            require(services.query(name)->restart_count == (policy == RestartPolicy::never ? 0u : 5u),
+                    "retry reservation projection changed");
+            recovery.tick(at + 1h);
+            drain();
             const bool critical = std::string(name) == "control_service";
             require(states.query().current == (critical ? (policy == RestartPolicy::never ? DeviceState::error
                                                                                          : DeviceState::offline)
@@ -384,6 +459,41 @@ void test_lifecycle_retry_exhaustion_reaches_device_state() {
             require(services.query(name)->state == ServiceState::failed, "Phase2 final FAILED state changed");
         }
     }
+}
+
+void test_bound_attempt_failure_keeps_episode_and_rejects_old_candidate() {
+    Fixture fixture;
+    fixture.running();
+    fixture.send(RuntimeEventType::heartbeat_timeout, "control_service");
+    fixture.send(RuntimeEventType::recovery_start, "control_service");
+    auto context = fixture.contexts.at("control_service");
+    RuntimeEvent candidate = fact(RuntimeEventType::service_started, "control_service");
+    candidate.generation = ++fixture.generations["control_service"];
+    context.execution_generation = candidate.generation;
+    candidate.recovery_context = context;
+    require(fixture.aggregation.handle(candidate), "bound candidate rejected");
+    fixture.expect(DeviceState::recovering);
+    auto old_success = candidate;
+    old_success.type = RuntimeEventType::recovery_success;
+    auto failure = fact(RuntimeEventType::service_failed, "control_service");
+    failure.generation = ++fixture.generations["control_service"];
+    failure.recovery_context = context;
+    require(fixture.aggregation.handle(failure), "bound attempt failure rejected");
+    context.execution_generation.reset();
+    require(fixture.aggregation.bind_recovery("control_service", *failure.generation, context, true, base),
+            "retry lost its admitted episode");
+    fixture.expect(DeviceState::recovering);
+    const auto notifications = fixture.changes.size();
+    require(!fixture.aggregation.handle(old_success) && fixture.changes.size() == notifications,
+            "old candidate cleared the newer attempt failure");
+    candidate.generation = ++fixture.generations["control_service"];
+    context.execution_generation = candidate.generation;
+    candidate.recovery_context = context;
+    require(fixture.aggregation.handle(candidate), "next candidate rejected");
+    fixture.expect(DeviceState::recovering);
+    candidate.type = RuntimeEventType::recovery_success;
+    require(fixture.aggregation.handle(candidate), "correct second execution rejected");
+    fixture.expect(DeviceState::running);
 }
 
 void test_invalid_duplicate_events_and_checked_targets() {
@@ -468,6 +578,7 @@ int main() {
         test_resource_critical_downgrade_and_clear();
         test_stale_recovery_generation_rejected();
         test_lifecycle_retry_exhaustion_reaches_device_state();
+        test_bound_attempt_failure_keeps_episode_and_rejects_old_candidate();
         test_invalid_duplicate_events_and_checked_targets();
         test_dispatcher_fifo_subscribers_and_nested_publication();
         test_runtime_fifo_and_start_failure_adapter();

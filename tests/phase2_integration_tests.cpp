@@ -1,3 +1,5 @@
+#include "runtime/recovery_manager.hpp"
+#include <memory>
 #include "runtime/runtime_manager.hpp"
 #include "runtime/service_manager.hpp"
 #include <cerrno>
@@ -109,6 +111,61 @@ struct RecordedProcesses final : ProcessSupervisor {
     std::vector<ProcessExit> reap() override { return real.reap(); }
 };
 
+// Test-only writer adapter. Lifecycle callbacks append work; draining is explicit.
+struct RecoveryHarness {
+    ServiceManager& services;
+    std::vector<ServiceStateChange>& changes;
+    std::unique_ptr<RecoveryManager> recovery;
+    std::size_t cursor = 0;
+    Clock::time_point checkpoint{};
+    RecoveryHarness(ServiceManager& sm, std::vector<ServiceStateChange>& work) : services(sm), changes(work) {}
+    void connect() {
+        if (recovery) return;
+        std::vector<ServiceConfig> definitions;
+        for (const auto& name : services.startup_order()) definitions.push_back(*services.queryServiceDefinition(name));
+        recovery = std::make_unique<RecoveryManager>(std::move(definitions), services, [this] { return checkpoint; });
+    }
+    void drain(Clock::time_point now) {
+        connect();
+        checkpoint = now;
+        while (cursor < changes.size()) {
+            const auto change = changes[cursor++]; // prepare/finalize can append more work.
+            if (change.cause == ServiceChangeCause::recovery_finalization) continue;
+            if (change.to == ServiceState::stopping || change.to == ServiceState::stopped) {
+                if (change.cause != ServiceChangeCause::recovery_preparation)
+                    recovery->cancel(change.service_name, change.cause == ServiceChangeCause::dependency_stop ?
+                        RecoveryTerminalReason::dependency_stop : RecoveryTerminalReason::explicit_stop, now);
+            } else if (change.to == ServiceState::failed) {
+                if (change.operation) {
+                    recovery->observeFailure(change.service_name, change.operation->context, change.generation,
+                        change.failure_type.value_or(FailureType::startup_failure), "captured attempt failure", now);
+                } else {
+                    RecoveryRequest request;
+                    request.service_name = change.service_name;
+                    request.service_generation = change.generation;
+                    request.failure_type = change.failure_type.value_or(FailureType::startup_failure);
+                    request.reason = "captured failure";
+                    recovery->submit(std::move(request), now);
+                }
+            }
+        }
+    }
+    void handle(const Event& event) {
+        connect();
+        checkpoint = event.at;
+        if (event.type == EventType::process_exited && recovery->query(event.service_name))
+            services.handleProcessExit(event, recovery->classifyExit(event.service_name, event.exit_status));
+        else services.handle(event);
+        drain(event.at);
+    }
+    void tick(Clock::time_point now) {
+        services.tick(now);
+        drain(now);
+        recovery->tick(now);
+        drain(now);
+    }
+};
+
 struct Fixture {
     RecordedProcesses processes;
     std::vector<Event> health;
@@ -118,6 +175,7 @@ struct Fixture {
     std::vector<ServiceStateChange> changes;
     ServiceManager services{processes, monitor, logger,
         [this](const ServiceStateChange& change) { changes.push_back(change); }};
+    RecoveryHarness coordinator{services, changes};
     // Logical deadlines avoid sleeping through the 2/4/8/16/32 second backoff.
     // Process launch, signal delivery, readiness and waitpid remain real.
     const Clock::time_point base = Clock::now() + 10s;
@@ -129,7 +187,7 @@ struct Fixture {
     void check(Clock::time_point at) {
         health.clear();
         monitor.check(at);
-        for (const auto& event : health) services.handle(event);
+        for (const auto& event : health) coordinator.handle(event);
     }
     ProcessExit reap_one(const std::string& name, Clock::time_point at) {
         const int pid = status(name).pid;
@@ -138,7 +196,7 @@ struct Fixture {
             const auto exits = processes.reap();
             if (!exits.empty()) {
                 require(exits.size() == 1 && exits[0].pid == pid, "unexpected child exit");
-                services.handle(Event{EventType::process_exited, name, at, pid, exits[0].status});
+                coordinator.handle(Event{EventType::process_exited, name, at, pid, exits[0].status});
                 return exits[0];
             }
             std::this_thread::sleep_for(5ms);
@@ -178,7 +236,7 @@ void test_start_and_graceful_shutdown() {
     require(WIFEXITED(exit.status) && WEXITSTATUS(exit.status) == 0,
             "SIGTERM did not produce a graceful exit");
     f.check(f.base + 1h);
-    f.services.tick(f.base + 1h);
+    f.coordinator.tick(f.base + 1h);
     require(f.status("worker").state == ServiceState::stopped && f.status("worker").pid == -1 &&
             !f.status("worker").start_time && f.processes.launches.size() == 1 &&
             f.processes.forced.empty() && f.health.empty(), "explicit stop restarted or retained service");
@@ -206,10 +264,10 @@ void test_real_crash_backoff_and_restart_limit() {
                 "real crash did not schedule one retry");
         f.services.handle(Event{EventType::process_exited, "crasher", now, old_pid, exit.status});
         f.services.startService("crasher", now);
-        f.services.tick(now + delay - 1ms);
+        f.coordinator.tick(now + delay - 1ms);
         require(f.processes.launches.size() == attempt && f.status("crasher").restart_count == attempt,
                 "duplicate exit/start bypassed backoff");
-        f.services.tick(now + delay);
+        f.coordinator.tick(now + delay);
         ready.wait();
         const int replacement = f.status("crasher").pid;
         require(replacement > 0 && f.processes.real.checkProcessAlive(replacement) &&
@@ -221,7 +279,7 @@ void test_real_crash_backoff_and_restart_limit() {
     const int last_pid = f.status("crasher").pid;
     require(::kill(last_pid, SIGKILL) == 0, "final crash injection failed");
     f.reap_one("crasher", now);
-    f.services.tick(now + 1h);
+    f.coordinator.tick(now + 1h);
     require(f.status("crasher").state == ServiceState::failed && f.status("crasher").pid == -1 &&
             f.status("crasher").restart_count == 5 && f.processes.launches.size() == 6,
             "sixth crash did not exhaust five-retry budget");
@@ -245,18 +303,18 @@ void test_heartbeat_timeout_escalation_and_recovery() {
     require(f.health.size() == 1 && f.health[0].missed_count == 1 &&
             f.status("silent").state == ServiceState::recovering &&
             f.processes.stops == std::vector<std::string>{"silent"}, "timeout did not trigger recovery");
-    f.services.tick(f.base + 5s - 1ms);
+    f.coordinator.tick(f.base + 5s - 1ms);
     require(f.processes.real.checkProcessAlive(old_pid) && f.processes.forced.empty(),
             "SIGKILL preceded the shutdown grace deadline");
-    f.services.tick(f.base + 5s);
-    f.services.tick(f.base + 6s);
+    f.coordinator.tick(f.base + 5s);
+    f.coordinator.tick(f.base + 6s);
     require(f.processes.forced == std::vector<std::string>{"silent"} &&
             f.processes.launches.size() == 1 && f.status("silent").pid == old_pid,
             "recovery launched before old child reaping");
     const auto exit = f.reap_one("silent", f.base + 6s);
     require(WIFSIGNALED(exit.status) && WTERMSIG(exit.status) == SIGKILL,
             "unresponsive child was not force stopped");
-    f.services.tick(f.base + 6s);
+    f.coordinator.tick(f.base + 6s);
     ready.wait();
     require(f.status("silent").state == ServiceState::running && f.status("silent").restart_count == 1 &&
             f.processes.real.checkProcessAlive(f.status("silent").pid) &&
@@ -298,7 +356,7 @@ void test_real_dependency_start_stop_order() {
         if (reaped < 4) std::this_thread::sleep_for(5ms);
     }
     require(reaped == 4, "dependency children were not all reaped");
-    f.services.tick(f.base + 1h);
+    f.coordinator.tick(f.base + 1h);
     for (const auto& name : {"base", "left", "right", "app"})
         require(f.status(name).state == ServiceState::stopped && f.status(name).pid == -1,
                 "dependency shutdown did not clear registry");

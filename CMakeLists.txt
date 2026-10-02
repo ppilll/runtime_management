@@ -7,6 +7,7 @@ find_package(Threads REQUIRED)
 add_library(runtime_core
     src/config/config_manager.cpp
     src/runtime/event.cpp
+    src/runtime/recovery_manager.cpp
     src/runtime/device_state_manager.cpp
     src/runtime/service_aggregation.cpp
     src/runtime/runtime_manager.cpp

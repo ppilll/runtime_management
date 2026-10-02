@@ -1,6 +1,7 @@
 #pragma once
 
 #include "runtime/device_state.hpp"
+#include "runtime/recovery.hpp"
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -35,9 +36,11 @@ struct RuntimeEvent {
     // Required for named service facts. Assigned by the lifecycle owner, not
     // inferred from timestamps; recovery results must match the current fault.
     std::optional<std::uint64_t> generation;
+    // Captured episode/launch bridge; only the SM/RM writer adapters publish it.
+    std::optional<RecoveryContext> recovery_context;
 };
 
-enum class EventType { start, stop, heartbeat, health_check, health_missed, process_exited, shutdown, device_state, runtime_event };
+enum class EventType { start, stop, heartbeat, health_check, health_missed, process_exited, shutdown, device_state, runtime_event, restart_request, recovery_result };
 
 struct Event {
     EventType type;
@@ -49,6 +52,11 @@ struct Event {
     // Internal device trigger envelope; existing service event fields retain their order.
     std::optional<DeviceStateEvent> device_state_event;
     std::optional<RuntimeEvent> runtime_event;
+    // Internal-only tail fields. Existing aggregate field order and wire types
+    // are unchanged; Runtime validates captured instance and recovery bindings.
+    std::optional<std::uint64_t> instance_generation;
+    std::optional<RecoveryContext> recovery_context;
+    std::optional<RecoveryResult> recovery_result;
 };
 
 // Single event-loop writer. External threads use EventQueue, never this object.

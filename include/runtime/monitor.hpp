@@ -22,7 +22,8 @@ public:
     using ResourceSink = std::function<void(RuntimeEvent)>;
     explicit Monitor(Sink sink, std::chrono::seconds interval = std::chrono::seconds{5},
                      ResourceSink resources = {}, ResourceThresholds thresholds = {});
-    void watch(const std::string& name, Clock::time_point now, std::chrono::seconds timeout);
+    void watch(const std::string& name, Clock::time_point now, std::chrono::seconds timeout,
+               std::uint64_t instance_generation = 0);
     void unwatch(const std::string& name);
     void heartbeat(const std::string& name, Clock::time_point now);
     void check(Clock::time_point now);
@@ -35,6 +36,7 @@ private:
         Clock::time_point next_miss;
         std::chrono::seconds timeout;
         unsigned misses = 0;
+        std::uint64_t instance_generation = 0;
     };
     Sink sink_;
     std::chrono::seconds interval_;

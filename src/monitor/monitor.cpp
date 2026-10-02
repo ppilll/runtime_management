@@ -34,11 +34,12 @@ void Monitor::report_resources(double cpu_percent, double memory_percent, Clock:
     resources_(std::move(memory));
 }
 
-void Monitor::watch(const std::string& name, Clock::time_point now, std::chrono::seconds timeout) {
+void Monitor::watch(const std::string& name, Clock::time_point now, std::chrono::seconds timeout,
+                    std::uint64_t instance_generation) {
     if (timeout <= std::chrono::seconds::zero())
         throw std::invalid_argument("heartbeat timeout must be positive");
     std::lock_guard<std::mutex> lock(mutex_);
-    watches_[name] = Watch{now, now + timeout, timeout, 0};
+    watches_[name] = Watch{now, now + timeout, timeout, 0, instance_generation};
 }
 
 void Monitor::unwatch(const std::string& name) {
@@ -66,6 +67,7 @@ void Monitor::check(Clock::time_point now) {
             watch.misses += periods;
             watch.next_miss += interval_ * periods;
             events.push_back(Event{EventType::health_missed, name, now, -1, 0, watch.misses});
+            events.back().instance_generation = watch.instance_generation;
         }
     }
     for (auto& event : events) sink_(std::move(event));
