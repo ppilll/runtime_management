@@ -1,9 +1,11 @@
 #pragma once
 
 #include "runtime/event.hpp"
+#include "runtime/resource_snapshot.hpp"
 #include <chrono>
 #include <functional>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -14,6 +16,9 @@ struct ResourceThresholds {
     double cpu_warning = 80.0;
     double memory_warning = 80.0;
     double memory_critical = 95.0;
+    std::optional<double> cpu_clear;
+    std::optional<double> memory_clear;
+    std::optional<double> memory_critical_clear;
 };
 
 class Monitor {
@@ -27,8 +32,9 @@ public:
     void unwatch(const std::string& name);
     void heartbeat(const std::string& name, Clock::time_point now);
     void check(Clock::time_point now);
-    // Accepts measured percentages; no hardware/procfs collection or state mutation.
+    // Both inputs are validated before advancing the shared resource policy.
     void report_resources(double cpu_percent, double memory_percent, Clock::time_point at = Clock::now());
+    void observeResources(const SystemResourceSnapshot& snapshot);
 
 private:
     struct Watch {
@@ -42,6 +48,10 @@ private:
     std::chrono::seconds interval_;
     const ResourceSink resources_;
     const ResourceThresholds thresholds_;
+    enum class Pressure { normal, warning, critical };
+    std::mutex resource_mutex_;
+    std::optional<Pressure> cpu_pressure_;
+    std::optional<Pressure> memory_pressure_;
     std::mutex mutex_;
     std::unordered_map<std::string, Watch> watches_;
 };

@@ -1,9 +1,11 @@
 #include "runtime/config_manager.hpp"
 #include <cctype>
+#include <cmath>
 #include <fstream>
 #include <map>
 #include <stdexcept>
 #include <variant>
+#include <utility>
 
 namespace runtime {
 namespace {
@@ -187,6 +189,30 @@ std::vector<std::string> strings(const Json& value, const char* name) {
     return result;
 }
 
+MonitoringConfig monitoring(const Object& root) {
+    MonitoringConfig config;
+    const auto* value = field(root, "monitoring");
+    if (!value) return config;
+    const auto* object = std::get_if<Object>(value);
+    if (!object) throw std::runtime_error("monitoring must be an object");
+    for (const auto& entry : *object) {
+        const auto& key = entry.first;
+        if (key != "sample_interval_seconds" && key != "cpu_warning" && key != "cpu_clear" &&
+            key != "memory_warning" && key != "memory_clear" && key != "memory_critical" &&
+            key != "memory_critical_clear")
+            throw std::runtime_error("unknown monitoring field: " + key);
+    }
+    config.sample_interval_seconds = std::chrono::seconds(get<long long>(*object, "sample_interval_seconds", 2));
+    config.cpu_warning = get<long long>(*object, "cpu_warning", 80);
+    config.cpu_clear = get<long long>(*object, "cpu_clear", 75);
+    config.memory_warning = get<long long>(*object, "memory_warning", 80);
+    config.memory_clear = get<long long>(*object, "memory_clear", 75);
+    config.memory_critical = get<long long>(*object, "memory_critical", 95);
+    config.memory_critical_clear = get<long long>(*object, "memory_critical_clear", 90);
+    ConfigManager::validate(config);
+    return config;
+}
+
 ServiceConfig service(const Json& value) {
     const auto* object = std::get_if<Object>(&value);
     if (!object) throw std::runtime_error("service entry must be an object");
@@ -255,7 +281,26 @@ std::chrono::seconds ConfigManager::recoveryTimeout(const ServiceConfig& config)
     return std::chrono::seconds(63 + 5 * (config.shutdown_timeout.count() + config.startup_timeout.count() + 5) + 1);
 }
 
+void ConfigManager::validate(const MonitoringConfig& config) {
+    if (config.sample_interval_seconds.count() < 1 || config.sample_interval_seconds.count() > 60)
+        throw std::invalid_argument("sample_interval_seconds must be between 1 and 60 seconds");
+    for (const auto value : {config.cpu_warning, config.cpu_clear, config.memory_warning,
+                            config.memory_clear, config.memory_critical, config.memory_critical_clear})
+        if (!std::isfinite(value) || value < 0 || value > 100)
+            throw std::invalid_argument("monitoring percentages must be finite and between 0 and 100");
+    if (!(config.cpu_clear < config.cpu_warning))
+        throw std::invalid_argument("cpu_clear must be less than cpu_warning");
+    if (!(config.memory_clear < config.memory_warning &&
+          config.memory_warning <= config.memory_critical_clear &&
+          config.memory_critical_clear < config.memory_critical))
+        throw std::invalid_argument("require memory_clear < memory_warning <= memory_critical_clear < memory_critical");
+}
+
 std::vector<ServiceConfig> ConfigManager::load_file(const std::string& path) {
+    return load_runtime_file(path).services;
+}
+
+RuntimeConfig ConfigManager::load_runtime_file(const std::string& path) {
     std::ifstream input(path, std::ios::binary);
     if (!input) throw std::runtime_error("cannot open config: " + path);
     std::string contents((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
@@ -275,7 +320,7 @@ std::vector<ServiceConfig> ConfigManager::load_file(const std::string& path) {
         if (!names.emplace(result[i].service_name, i).second)
             throw std::runtime_error("duplicate service_name: " + result[i].service_name);
     }
-    return result;
+    return {std::move(result), monitoring(*object)};
 }
 
 } // namespace runtime

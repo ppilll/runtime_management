@@ -5,6 +5,7 @@
 #include "runtime/logger.hpp"
 #include "runtime/monitor.hpp"
 #include "runtime/process_supervisor.hpp"
+#include "runtime/resource_snapshot.hpp"
 #include <functional>
 #include <optional>
 #include <mutex>
@@ -59,6 +60,13 @@ public:
     std::optional<ServiceStatus> queryServiceStatus(const std::string& name) const;
     std::optional<ServiceConfig> queryServiceDefinition(const std::string& name) const;
     std::vector<ServiceStatus> listServices() const;
+    // Disengaged means registry busy. Engaged empty means no eligible children.
+    // No proc I/O or lifecycle changes. instance_generation = launched_generation.
+    std::optional<std::vector<ProcessIdentity>> trySnapshotProcessIdentities() const;
+    // One try-lock and O(N) lookups; returns only identities still matching.
+    // Collector must reject the entire scan if any captured identity is missing.
+    std::optional<std::vector<ProcessIdentity>> tryValidateProcessIdentities(
+        const std::vector<ProcessIdentity>& captured) const;
     // Validates the complete static graph; throws invalid_argument on bad edges/cycles.
     // Register all definitions first. Prerequisites precede their dependents.
     std::vector<std::string> startup_order() const;

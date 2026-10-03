@@ -134,13 +134,21 @@ void test_resource_monitor_thresholds() {
     require(!facts[4].active && facts[5].severity == ResourceSeverity::critical && facts[5].at == at,
             "95 percent critical threshold or metadata");
     monitor.report_resources(0, 94.9, at);
-    require(facts.back().active && facts.back().severity == ResourceSeverity::warning, "critical resource downgrade");
+    require(facts.size() == 6 && facts.back().active && facts.back().severity == ResourceSeverity::critical,
+            "94.9 must preserve critical resource latch without repeat publication");
+    monitor.report_resources(0, 90, at);
+    require(facts.size() == 7 && facts.back().active && facts.back().severity == ResourceSeverity::warning,
+            "90 percent must downgrade the same memory source");
+    monitor.report_resources(0, 76, at);
+    require(facts.size() == 7, "memory hysteresis repeated a stable warning");
+    monitor.report_resources(0, 75, at);
+    require(facts.size() == 8 && !facts.back().active, "75 percent must clear memory latch");
     monitor.report_resources(0, 0, at);
-    require(!facts.back().active && facts.back().source == "memory_monitor", "memory clear source");
+    require(facts.size() == 8 && !facts.back().active && facts.back().source == "memory_monitor", "memory clear source");
     const auto count = facts.size();
     for (const auto value : {-1.0, 101.0, std::numeric_limits<double>::infinity(),
                              std::numeric_limits<double>::quiet_NaN()})
-        rejects([&] { monitor.report_resources(0, value); }, "invalid percentage accepted");
+        rejects([&] { monitor.report_resources(100, value); }, "invalid percentage accepted");
     require(facts.size() == count, "invalid resource input published partial facts");
     Monitor configured([](Event) {}, 5s, [&](RuntimeEvent event) { facts.push_back(std::move(event)); },
                        ResourceThresholds{60, 70, 90});

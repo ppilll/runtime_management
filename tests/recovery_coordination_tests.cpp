@@ -337,6 +337,35 @@ void test_real_dependency_stop_closure_requires_explicit_start() {
             "dependency shutdown did not reap the full closure");
 }
 
+void test_p5_resource_pressure_does_not_restart_running_service() {
+    Fixture f("stubborn");
+    f.start();
+    f.run();
+    f.wait([&] { return f.status().state == ServiceState::running &&
+        f.manager->queryDeviceState().current == DeviceState::running; });
+    const auto initial = f.status();
+    f.manager->reportResourceUsage(80, 80);
+    f.wait([&] { return f.manager->queryDeviceState().current == DeviceState::warning; });
+    f.manager->reportResourceUsage(100, 95);
+    f.wait([&] { return f.manager->queryDeviceState().current == DeviceState::error; });
+    f.manager->reportResourceUsage(100, 90);
+    f.wait([&] { return f.manager->queryDeviceState().current == DeviceState::warning; });
+    f.manager->reportResourceUsage(75, 75);
+    f.wait([&] { return f.manager->queryDeviceState().current == DeviceState::running; });
+    const auto after = f.status();
+    require(after.pid == initial.pid && after.generation == initial.generation &&
+            after.launched_generation == initial.launched_generation && after.restart_count == 0 &&
+            after.state == ServiceState::running, "resource pressure mutated lifecycle or reserved a restart");
+    f.finish();
+    unsigned launches = 0;
+    std::ifstream(f.directory / "launches") >> launches;
+    require(launches == 1 && f.status().pid == -1 && f.status().restart_count == 0,
+            "resource facts launched another child or skipped shutdown reaping");
+    require(std::none_of(f.changes.begin(), f.changes.end(), [](const auto& state) {
+        return state.current == DeviceState::recovering || state.current == DeviceState::offline;
+    }), "resource pressure created a recovery/terminal episode");
+}
+
 void test_untrusted_recovery_ingress_cannot_clear_resource() {
     Fixture f("stubborn");
     for (const auto type : {RuntimeEventType::recovery_start, RuntimeEventType::recovery_success,
@@ -536,6 +565,7 @@ int main(int argc, char** argv) {
         test_real_manual_restart_and_stale_instance_facts();
         test_manual_launch_failure_creates_one_automatic_episode();
         test_real_dependency_stop_closure_requires_explicit_start();
+        test_p5_resource_pressure_does_not_restart_running_service();
         test_untrusted_recovery_ingress_cannot_clear_resource();
         test_queue_late_success_duplicate_faults_and_terminal_gate();
         test_real_optional_terminal_and_partial_resource_recovery();

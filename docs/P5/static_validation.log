@@ -1,0 +1,152 @@
+P5 T4 source-only validation - 2026-10-03 (Asia/Shanghai)
+Scope: static checks only, as requested by the user.
+HEAD: 4843061fce2a329832105d34aaea380a35560c0e
+Python: 3.12.14 (main, Aug 25 2026, 14:01:42) [MSC v.1944 64 bit (AMD64)]
+Platform: Windows-11-10.0.22631-SP0
+
+Initial pre-migration checks (actual diagnostics captured):
+$ python -B tests/phase3_validation_static_check.py
+exit_status=1
+FAIL: Thread4: resource producer wiring missing: thresholds_.memory_warning >= thresholds_.memory_critical
+$ python -B tests/phase4_static_check.py
+exit_status=1
+FAIL (static): frozen interface/backend changed: src/ipc/main.cpp
+
+P5 checker development diagnostics: reader initializer count corrected; missing review file then generated.
+
+Integration static checks before assertion-helper support:
+$ python -B tests/phase3_validation_static_check.py
+exit_status=0
+stdout:
+CHECK: Phase2
+PASS: 43 C++ files; local includes, delimiters, comments/literals, conflict markers
+PASS: 159 test functions invoked by main; 12 targets, 13 CTest entries
+PASS: added test/checker/report whitespace and final newlines
+LIMIT: source structure only; C++ type/link correctness and runtime behavior are unverified
+CHECK: Phase3 state
+PASS: 43 C++ files; local includes, delimiters, comments/literals, conflict markers
+PASS: 159 test functions invoked by main; 12 targets, 13 CTest entries
+PASS: seven states, nine documented table edges; matrix has 9 allowed / 54 undefined pairs
+PASS: 7 paths through the extracted table, including boot, error and recovery entry
+PASS: internal ownership/query/event wiring; task artifacts whitespace and final newlines
+LIMIT: source-only validation; C++ compilation, runtime behavior and concurrency are unverified
+CHECK: Phase3 aggregation
+PASS: 43 C++ files; 159 test functions; 12 targets, 13 CTest entries
+PASS: eight internal event types/labels; static criticality, priority and runtime adapter structure
+PASS: nine original plus 15 aggregate triples (24 total); 9 extracted-table scenario paths
+PASS: four requested C++ scenarios registered; dispatcher FIFO structure; artifact whitespace
+LIMIT: source/contract checks only; C++ execution, types/linking and concurrency remain unverified
+CHECK: Phase3 IPC
+PASS: 43 C++ files; includes, delimiters, literals and conflict markers
+PASS: 159 test functions invoked by main; 12 targets, 13 CTest entries
+PASS: unchanged legacy types/frame sizes; three new requests; 4 valid JSON examples
+PASS: runtime query/sink wiring, subscription sequence boundary, bounded queues and gap disconnect
+PASS: task artifact whitespace/final newlines and Python syntax
+LIMIT: source only; C++ types/linking, socket behavior and concurrency are unverified
+PASS: explicit-target test declares 441 triples: 24 allowed / 417 rejected
+PASS: full boot/critical recovery and all three service heartbeat recovery scenarios declared
+PASS: Thread4 artifacts (including untracked files), Python syntax and existing test registration
+PASS: four review fixes and health-query wiring; 11 remediation tests declared and invoked
+LIMIT: source/contract checks only; C++ behavior/concurrency unverified; remediation details in review_fixes.md
+
+stderr:
+
+$ python -B tests/phase4_static_check.py
+exit_status=0
+stdout:
+PASS (static): 43 C++ files, 159 main-wired tests, 12 targets/13 CTest entries
+PASS (static): 16 frozen files, original six-second/PID/reap regression and old registrations
+PASS (static): single policy owner, captured bridge, cancellation/timeout/ingress and IPC contracts
+PASS (static): P4-01..32 plus P4-19b map to 43 assertion-bearing test functions; 441 target triples retained
+LIMIT: source-only evidence; no C++ compilation, runtime tests, concurrency or ARM64 verification
+
+stderr:
+
+$ python -B tests/phase5_static_check.py
+exit_status=1
+stdout:
+
+stderr:
+FAIL (P5 static): P5-01 missing assertion/main wiring: test_cpu_each_component_busy_definition
+
+$ git -c core.safecrlf=false diff --check
+exit_status=0
+stdout:
+
+stderr:
+
+
+In-memory negative static-oracle probes (no repository source mutation):
+REJECTED (expected static failure): collector launch anchor: collector missing: previous.starttime && *previous.starttime != stat->starttime
+REJECTED (expected static failure): collector pre-commit validator: collector missing: const auto validated = validate(*captured)
+REJECTED (expected static failure): collector nonpositive platform: collector missing: platform_.clock_ticks_per_second <= 0
+REJECTED (expected static failure): reserved source guard: Runtime missing: event.runtime_event->source == "cpu_monitor"
+REJECTED (expected static failure): query stale boundary: query missing: > 3 * resource_interval_
+REJECTED (expected static failure): resource event ownership: P5 altered resource/recovery event ownership
+
+Final static checks after all edits:
+$ python -B tests/phase3_validation_static_check.py
+exit_status=0
+stdout:
+CHECK: Phase2
+PASS: 43 C++ files; local includes, delimiters, comments/literals, conflict markers
+PASS: 159 test functions invoked by main; 12 targets, 13 CTest entries
+PASS: added test/checker/report whitespace and final newlines
+LIMIT: source structure only; C++ type/link correctness and runtime behavior are unverified
+CHECK: Phase3 state
+PASS: 43 C++ files; local includes, delimiters, comments/literals, conflict markers
+PASS: 159 test functions invoked by main; 12 targets, 13 CTest entries
+PASS: seven states, nine documented table edges; matrix has 9 allowed / 54 undefined pairs
+PASS: 7 paths through the extracted table, including boot, error and recovery entry
+PASS: internal ownership/query/event wiring; task artifacts whitespace and final newlines
+LIMIT: source-only validation; C++ compilation, runtime behavior and concurrency are unverified
+CHECK: Phase3 aggregation
+PASS: 43 C++ files; 159 test functions; 12 targets, 13 CTest entries
+PASS: eight internal event types/labels; static criticality, priority and runtime adapter structure
+PASS: nine original plus 15 aggregate triples (24 total); 9 extracted-table scenario paths
+PASS: four requested C++ scenarios registered; dispatcher FIFO structure; artifact whitespace
+LIMIT: source/contract checks only; C++ execution, types/linking and concurrency remain unverified
+CHECK: Phase3 IPC
+PASS: 43 C++ files; includes, delimiters, literals and conflict markers
+PASS: 159 test functions invoked by main; 12 targets, 13 CTest entries
+PASS: unchanged legacy types/frame sizes; three new requests; 4 valid JSON examples
+PASS: runtime query/sink wiring, subscription sequence boundary, bounded queues and gap disconnect
+PASS: task artifact whitespace/final newlines and Python syntax
+LIMIT: source only; C++ types/linking, socket behavior and concurrency are unverified
+PASS: explicit-target test declares 441 triples: 24 allowed / 417 rejected
+PASS: full boot/critical recovery and all three service heartbeat recovery scenarios declared
+PASS: Thread4 artifacts (including untracked files), Python syntax and existing test registration
+PASS: four review fixes and health-query wiring; 11 remediation tests declared and invoked
+LIMIT: source/contract checks only; C++ behavior/concurrency unverified; remediation details in review_fixes.md
+
+stderr:
+
+$ python -B tests/phase4_static_check.py
+exit_status=0
+stdout:
+PASS (static): 43 C++ files, 159 main-wired tests, 12 targets/13 CTest entries
+PASS (static): 16 frozen files, original six-second/PID/reap regression and old registrations
+PASS (static): single policy owner, captured bridge, cancellation/timeout/ingress and IPC contracts
+PASS (static): P4-01..32 plus P4-19b map to 43 assertion-bearing test functions; 441 target triples retained
+LIMIT: source-only evidence; no C++ compilation, runtime tests, concurrency or ARM64 verification
+
+stderr:
+
+$ python -B tests/phase5_static_check.py
+exit_status=0
+stdout:
+PASS (P5 static): 43 C++ files; 159 main-wired tests; 12 targets/13 CTest entries
+PASS (P5 static): 27 frozen files; 73 historical documents/logs; old test bodies and six-second/PID/reap retained
+PASS (P5 static): approved P3 Monitor/P4 main migrations only; all P4 COVERAGE/owner/budget/terminal/DSM/IPC checks retained
+PASS (P5 static): bounded measurement, launch anchors, batch try-lock/revalidation, units, typed policy, native ingress, query, gates and two workers
+PASS (P5 static): 36 plan IDs map to 61 assertion-bearing functions; 24 acceptance rows present
+LIMIT: source/contract evidence only; assertions, concurrency, live procfs and performance are Not Verified
+
+stderr:
+
+$ git -c core.safecrlf=false diff --check
+exit_status=0
+stdout:
+
+stderr:
+

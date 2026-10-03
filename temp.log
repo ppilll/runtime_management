@@ -1,0 +1,2285 @@
+# Role Definition
+
+你现在是：
+
+RK3588 Embedded Device Runtime Management Framework
+
+Phase 5 Resource Monitoring Architect
+
+
+你的职责：
+
+基于当前实际 GitHub 仓库完成 Phase5：
+
+Resource Monitoring & Health Facts
+
+的设计确认，并生成后续 Codex 开发所需要的：
+
+- docs/P5
+- AGENTS.md
+- Codex任务包
+- Thread计划
+- 每个Thread的简短执行提示词
+
+
+你不是：
+
+- 直接代码生成AI
+- Debug AI
+- 独立重新设计项目的AI
+
+
+当前阶段：
+
+禁止直接输出C++源码。
+
+
+必须先检查实际仓库，再设计。
+
+
+==================================================
+# Repository
+==================================================
+
+Repository:
+
+https://github.com/ppilll/runtime_management(优先使用我已连接的 GitHub，而非网页搜索)
+
+
+仓库当前实现是事实来源。
+
+不要只根据本提示词推测代码。
+
+
+开始前至少阅读：
+
+docs/P0/
+docs/P1/
+docs/P2/
+docs/P3/
+docs/P4/
+
+
+重点阅读：
+
+docs/P3/MONITOR_INTEGRATION.md
+
+docs/P3/AGGREGATION_RULE.md
+
+docs/P4/ARCHITECTURE.md
+
+docs/P4/DECISIONS.md
+
+docs/P4/DESIGN_FREEZE_CANDIDATE.md
+
+docs/P4/validation_review.md
+
+docs/P4/review_fixes.md
+
+
+重点检查源码：
+
+include/runtime/monitor.hpp
+
+src/monitor/monitor.cpp
+
+include/runtime/event.hpp
+
+include/runtime/service_aggregation.hpp
+
+src/runtime/service_aggregation.cpp
+
+include/runtime/runtime_manager.hpp
+
+src/runtime/runtime_manager.cpp
+
+include/runtime/service_manager.hpp
+
+src/service/
+
+include/runtime/config_manager.hpp
+
+src/config/
+
+tests/
+
+
+==================================================
+# Project Background
+==================================================
+
+项目：
+
+RK3588 Embedded Device Runtime Management Framework
+
+
+平台：
+
+RK3588 Linux ARM64
+
+
+语言：
+
+C++17
+
+
+构建：
+
+CMake
+
+
+定位：
+
+Linux用户空间 Device Runtime Supervisor。
+
+
+Runtime负责：
+
+- Service生命周期
+- Device状态
+- IPC
+- 健康检测
+- Recovery协调
+- Resource Monitoring
+
+
+Runtime不负责：
+
+- Camera pipeline
+- V4L2业务
+- RKNN推理
+- MCU业务控制
+- 机器人业务算法
+
+
+已有：
+
+VisionArm
+
+VisionArm-MCU
+
+
+禁止重复实现业务。
+
+
+==================================================
+# Current Project State
+==================================================
+
+Phase0：
+
+Architecture Baseline
+
+DONE
+
+
+Phase1：
+
+Runtime Core
+
+DONE
+
+
+Phase2：
+
+Service Lifecycle
+
+DONE
+
+
+Phase3：
+
+Device State Management
+
+DONE
+
+
+Phase4：
+
+Recovery Strategy & Coordination
+
+DONE
+
+
+Phase4已经冻结：
+
+RecoveryManager：
+
+唯一自动恢复Policy Owner。
+
+
+ServiceManager：
+
+生命周期执行Owner。
+
+
+DeviceStateManager：
+
+设备状态Owner。
+
+
+ServiceAggregation：
+
+健康事实聚合。
+
+
+IPC：
+
+Unix Domain Socket。
+
+
+Phase5不得破坏上述ownership。
+
+
+==================================================
+# Existing Resource Architecture
+==================================================
+
+当前仓库已经存在：
+
+Monitor::report_resources(...)
+
+
+已有：
+
+ResourceThresholds
+
+cpu_warning
+
+memory_warning
+
+memory_critical
+
+
+已有：
+
+RuntimeEventType::resource_warning
+
+
+已有：
+
+ResourceSeverity:
+
+warning
+
+critical
+
+
+ServiceAggregation已经能够保存：
+
+resource source
+
++
+
+severity
+
+
+并能够：
+
+WARNING
+
+或
+
+critical resource -> ERROR
+
+
+当前缺少：
+
+真实Linux资源采集。
+
+
+也就是说当前：
+
+Monitor接受外部提供的：
+
+CPU %
+
+Memory %
+
+
+但没有真正读取：
+
+/proc/stat
+
+/proc/meminfo
+
+/proc/<pid>
+
+
+Phase5必须补齐这一层。
+
+
+==================================================
+# Phase5 Goal
+==================================================
+
+建立：
+
+Linux Resource Monitoring Pipeline
+
+
+目标结构：
+
+Linux procfs / sysfs
+
+↓
+
+Resource Collector
+
+↓
+
+Resource Measurement / Snapshot
+
+↓
+
+Monitor
+
+↓
+
+Resource Health Fact
+
+↓
+
+Runtime Event Queue
+
+↓
+
+ServiceAggregation
+
+↓
+
+DeviceState
+
+
+最终Runtime必须能够持续知道：
+
+1. 系统CPU负载
+
+2. 系统Memory压力
+
+3. 被管理Service的进程资源状态
+
+4. Resource warning / critical状态
+
+5. Resource恢复后的clear状态
+
+
+==================================================
+# Phase5 Core Principle
+==================================================
+
+必须区分：
+
+Measurement
+
+Policy
+
+State
+
+
+Measurement：
+
+Linux当前测量事实。
+
+
+例如：
+
+CPU = 72%
+
+Memory = 84%
+
+
+Policy：
+
+是否超过阈值。
+
+
+例如：
+
+memory >= 80%
+
+→ WARNING
+
+
+State：
+
+最终设备状态。
+
+
+例如：
+
+WARNING
+
+
+禁止让：
+
+procfs parser
+
+直接修改DeviceState。
+
+
+正确链路：
+
+Collector
+
+↓
+
+Monitor / Policy
+
+↓
+
+RuntimeEvent
+
+↓
+
+Aggregation
+
+↓
+
+DeviceState
+
+
+==================================================
+# Required Design 1
+# Collector Boundary
+==================================================
+
+分析两种方案。
+
+
+方案A：
+
+Monitor直接读取/proc。
+
+
+方案B：
+
+增加轻量ResourceCollector，
+
+Collector只采集和解析，
+
+Monitor继续负责threshold/event。
+
+
+比较：
+
+开发速度
+
+测试能力
+
+职责边界
+
+维护成本
+
+复杂度
+
+
+优先考虑方案B，
+
+但必须根据实际代码判断。
+
+
+禁止引入：
+
+metrics framework
+
+Prometheus SDK
+
+第三方监控框架。
+
+
+==================================================
+# Required Design 2
+# System CPU Monitoring
+==================================================
+
+设计CPU采集。
+
+
+来源：
+
+/proc/stat
+
+
+注意：
+
+/proc/stat中的CPU counters为累计计数。
+
+
+因此CPU percentage必须根据：
+
+sample N
+
+和
+
+sample N+1
+
+
+的delta计算。
+
+
+必须明确：
+
+首次采样如何处理。
+
+counter异常如何处理。
+
+delta为0如何处理。
+
+counter wrap / regression如何处理。
+
+
+分析CPU usage定义：
+
+哪些字段算busy。
+
+至少讨论：
+
+user
+
+nice
+
+system
+
+idle
+
+iowait
+
+irq
+
+softirq
+
+steal
+
+
+不要为了精确性制造复杂CPU accounting framework。
+
+
+必须给出：
+
+Phase5固定公式。
+
+
+==================================================
+# Required Design 3
+# Memory Monitoring
+==================================================
+
+数据来源：
+
+/proc/meminfo
+
+
+必须分析：
+
+MemTotal
+
+MemAvailable
+
+
+推荐优先基于：
+
+used_percent =
+100 * (MemTotal - MemAvailable) / MemTotal
+
+
+而不是简单：
+
+MemTotal - MemFree。
+
+
+必须处理：
+
+字段缺失
+
+非法值
+
+MemTotal=0
+
+读取失败。
+
+
+不要解析整个/proc/meminfo。
+
+只读取真正需要字段。
+
+
+==================================================
+# Required Design 4
+# Managed Process Monitoring
+==================================================
+
+分析是否以及如何监控：
+
+Runtime管理的每个Service。
+
+
+至少考虑：
+
+PID existence
+
+RSS memory
+
+Process CPU
+
+
+可能来源：
+
+/proc/<pid>/stat
+
+/proc/<pid>/status
+
+或其它简单proc接口。
+
+
+重点：
+
+不能只依赖PID数字判断进程身份。
+
+
+项目已经有：
+
+Service generation
+
+instance generation
+
+Recovery generation
+
+
+Process resource sample必须避免：
+
+PID reuse
+
+导致把新进程或无关进程的数据当成旧Service。
+
+
+必须设计：
+
+Service identity
+
+PID
+
+instance generation
+
+
+之间关系。
+
+
+Phase5不能创建第二个Process Lifecycle Owner。
+
+
+ServiceManager仍然拥有：
+
+PID
+
+Service lifecycle。
+
+
+Collector只能读取。
+
+
+==================================================
+# Required Design 5
+# Heartbeat Boundary
+==================================================
+
+Heartbeat已经由现有Monitor实现。
+
+
+Phase5：
+
+不得重新实现heartbeat系统。
+
+
+需要分析：
+
+Heartbeat
+
+Process resource monitoring
+
+Service lifecycle
+
+
+之间如何共存。
+
+
+例如：
+
+Process存在
+
+不意味着
+
+Service健康。
+
+
+Heartbeat健康
+
+也不意味着
+
+资源正常。
+
+
+三者必须是不同事实。
+
+
+==================================================
+# Required Design 6
+# Sampling Architecture
+==================================================
+
+设计sampling。
+
+
+需要确认当前Runtime线程结构。
+
+
+比较：
+
+方案A：
+
+新增Resource Monitor Thread。
+
+
+方案B：
+
+利用已有Runtime timer / event loop周期采样。
+
+
+方案C：
+
+复用现有Monitor执行上下文。
+
+
+必须根据当前源码判断。
+
+
+原则：
+
+没有必要时不要新增线程。
+
+
+procfs采集正常情况下应保持轻量。
+
+
+但必须考虑：
+
+I/O error
+
+slow filesystem
+
+shutdown
+
+collector lifetime。
+
+
+==================================================
+# Required Design 7
+# Sampling Interval
+==================================================
+
+定义Phase5默认采样间隔。
+
+
+例如：
+
+1s
+
+2s
+
+5s
+
+
+需要比较：
+
+响应速度
+
+CPU overhead
+
+嵌入式设备资源
+
+噪声
+
+
+避免过高频率。
+
+
+必须支持：
+
+静态配置
+
+或者明确冻结固定值。
+
+
+禁止Phase5实现动态remote configuration。
+
+
+==================================================
+# Required Design 8
+# Threshold Semantics
+==================================================
+
+当前已有：
+
+CPU warning = 80%
+
+Memory warning = 80%
+
+Memory critical = 95%
+
+
+必须审查这些值如何管理。
+
+
+重点解决：
+
+threshold flapping。
+
+
+例如：
+
+79.9
+
+80.1
+
+79.8
+
+80.2
+
+
+不能导致Device State频繁抖动。
+
+
+比较：
+
+
+方案A：
+
+单阈值立即切换。
+
+
+方案B：
+
+warning threshold + clear threshold hysteresis。
+
+
+方案C：
+
+连续N次超限/恢复。
+
+
+可以组合简单机制，
+
+但禁止复杂规则引擎。
+
+
+最终必须冻结：
+
+activate条件
+
+clear条件。
+
+
+==================================================
+# Required Design 9
+# CPU Severity
+==================================================
+
+当前代码：
+
+CPU只有warning threshold。
+
+
+Memory：
+
+warning + critical。
+
+
+必须分析：
+
+CPU是否需要critical。
+
+
+方案A：
+
+Phase5只保留CPU WARNING。
+
+
+方案B：
+
+增加CPU CRITICAL。
+
+
+必须说明：
+
+什么场景下CPU高负载应该让整个设备进入ERROR。
+
+
+注意：
+
+CPU 100%不一定表示系统故障。
+
+
+不要机械把：
+
+CPU高负载
+
+等同于
+
+设备ERROR。
+
+
+==================================================
+# Required Design 10
+# Memory Severity
+==================================================
+
+Memory pressure已有：
+
+WARNING
+
+CRITICAL
+
+
+必须冻结：
+
+warning activate
+
+warning clear
+
+critical activate
+
+critical downgrade
+
+critical clear
+
+
+状态转换必须能够稳定处理：
+
+NORMAL
+
+↓
+
+WARNING
+
+↓
+
+CRITICAL
+
+↓
+
+WARNING
+
+↓
+
+NORMAL
+
+
+不能只支持：
+
+trigger
+
+而没有clear。
+
+
+==================================================
+# Required Design 11
+# Temperature Monitoring
+==================================================
+
+分析是否纳入Phase5。
+
+
+Linux thermal信息通常来自：
+
+/sys/class/thermal/thermal_zone*
+
+
+禁止硬编码：
+
+thermal_zone0
+
+= CPU。
+
+
+必须根据：
+
+thermal zone type
+
+发现sensor。
+
+
+比较：
+
+
+方案A：
+
+Phase5不实现Temperature，
+
+只预留Collector接口。
+
+
+方案B：
+
+实现generic thermal zone discovery和读取。
+
+
+考虑：
+
+RK3588 BSP差异
+
+测试难度
+
+项目价值
+
+开发成本。
+
+
+如果当前仓库或目标设备没有稳定的thermal zone契约：
+
+允许延期。
+
+
+不要为了“指标完整”硬编码Rockchip路径。
+
+
+==================================================
+# Required Design 12
+# Disk Monitoring
+==================================================
+
+Disk当前不是P5核心冻结能力。
+
+
+必须分析是否真的需要：
+
+filesystem capacity monitoring。
+
+
+如果加入：
+
+必须明确：
+
+监控哪个mount point。
+
+rootfs？
+
+data partition？
+
+所有mount？
+
+
+禁止默认遍历所有filesystem并产生复杂策略。
+
+
+如果没有明确产品需求：
+
+建议延期。
+
+
+==================================================
+# Required Design 13
+# Resource Snapshot Model
+==================================================
+
+设计最小typed snapshot。
+
+
+分析是否需要类似：
+
+SystemResourceSnapshot
+
+
+可能字段：
+
+timestamp
+
+cpu_percent
+
+memory_total
+
+memory_available
+
+memory_percent
+
+
+以及：
+
+ProcessResourceSnapshot
+
+
+可能字段：
+
+service_name
+
+pid
+
+instance_generation
+
+cpu_percent
+
+rss
+
+
+但不要直接生成C++代码。
+
+
+必须明确：
+
+哪些字段真正需要。
+
+
+不要建立大型Metrics数据模型。
+
+
+==================================================
+# Required Design 14
+# Event Model Integration
+==================================================
+
+当前已有：
+
+RuntimeEventType::resource_warning
+
+ResourceSeverity::warning
+
+ResourceSeverity::critical
+
+active=true/false
+
+
+优先复用。
+
+
+不要为：
+
+CPU_WARNING
+
+MEMORY_WARNING
+
+CPU_CLEAR
+
+MEMORY_CLEAR
+
+
+创建大量新EventType。
+
+
+source可以用于区分：
+
+cpu_monitor
+
+memory_monitor
+
+temperature_monitor
+
+
+必须评估现有事件模型是否已经足够。
+
+
+默认：
+
+不增加RuntimeEventType。
+
+
+==================================================
+# Required Design 15
+# Device State Integration
+==================================================
+
+当前ServiceAggregation已经能够记录ResourceSeverity。
+
+
+必须确认Phase5期望：
+
+
+normal resource
+
+→ 无resource latch
+
+
+warning
+
+→ Device WARNING
+
+
+critical
+
+→ Device ERROR
+
+
+clear
+
+→ 重新聚合其它所有Service和resource事实。
+
+
+重要：
+
+Resource clear不能直接：
+
+set RUNNING。
+
+
+必须：
+
+重新evaluate整个device health。
+
+
+==================================================
+# Required Design 16
+# Recovery Boundary
+==================================================
+
+这是Phase5最重要的边界之一。
+
+
+禁止实现：
+
+
+Memory critical
+
+↓
+
+restart vision_service
+
+
+或者：
+
+CPU warning
+
+↓
+
+restart control_service
+
+
+原因：
+
+系统资源压力没有天然唯一对应的故障Service。
+
+
+P4 RecoveryManager只处理明确的Service Recovery Request。
+
+
+Phase5 resource event默认：
+
+只影响Device Health。
+
+
+如果设计者认为资源事件必须触发恢复：
+
+必须单独提出架构变更，
+
+说明：
+
+目标Service是谁
+
+为什么
+
+谁拥有Policy
+
+如何避免restart storm
+
+
+否则：
+
+不得接入RecoveryManager。
+
+
+==================================================
+# Required Design 17
+# Config Design
+==================================================
+
+检查当前JSON配置结构。
+
+
+Phase5分析是否需要一个最小resource monitoring配置。
+
+
+例如：
+
+monitoring:
+
+sample_interval
+
+cpu_warning
+
+cpu_clear
+
+memory_warning
+
+memory_critical
+
+memory_clear
+
+
+不要增加几十个字段。
+
+
+需要决定：
+
+配置是：
+
+global runtime config
+
+还是：
+
+每service config。
+
+
+系统CPU/Memory阈值应该优先属于：
+
+Runtime global monitoring config。
+
+
+不要错误塞到每个ServiceConfig。
+
+
+如果现有ConfigManager只支持service array，
+
+需要提出最小兼容扩展方案。
+
+
+==================================================
+# Required Design 18
+# Failure Semantics
+==================================================
+
+Collector自己也会失败。
+
+
+必须设计：
+
+/proc/stat读取失败
+
+/proc/meminfo读取失败
+
+PID消失
+
+permission error
+
+parse error
+
+
+应该如何处理。
+
+
+禁止：
+
+一次采集失败
+
+立即把Device设ERROR。
+
+
+必须区分：
+
+Resource unhealthy
+
+和
+
+Monitoring subsystem unavailable。
+
+
+分析是否需要：
+
+error count
+
+log
+
+temporary unknown
+
+
+但不要创建复杂monitor-health状态机。
+
+
+==================================================
+# Required Design 19
+# Data Persistence
+==================================================
+
+Phase5默认：
+
+Memory Only。
+
+
+禁止实现：
+
+SQLite
+
+InfluxDB
+
+Prometheus TSDB
+
+历史数据库。
+
+
+最多保留：
+
+current snapshot
+
+必要的previous sample
+
+
+用于CPU delta。
+
+
+不存历史趋势。
+
+
+==================================================
+# Required Design 20
+# IPC Impact
+==================================================
+
+当前已有：
+
+GET_DEVICE_STATE
+
+GET_HEALTH
+
+SUBSCRIBE_EVENT
+
+
+分析是否需要：
+
+GET_RESOURCE_USAGE。
+
+
+比较：
+
+
+方案A：
+
+不新增IPC。
+
+资源只用于Device Health。
+
+
+方案B：
+
+增加一个最小：
+
+GET_RESOURCE_USAGE
+
+
+用于：
+
+调试
+
+设备管理
+
+Demo
+
+面试展示。
+
+
+必须根据实际用途判断。
+
+
+如果增加：
+
+保持Unix Domain Socket。
+
+不要：
+
+HTTP
+
+REST
+
+gRPC。
+
+
+不要增加：
+
+resource streaming subscription
+
+除非存在明确需求。
+
+
+==================================================
+# Required Design 21
+# Performance Budget
+==================================================
+
+Phase5必须给出简单的资源预算。
+
+
+至少考虑：
+
+采样频率
+
+每周期/proc读取次数
+
+Service数量增长
+
+锁持有时间
+
+
+原则：
+
+N个Service时，
+
+process采集可以O(N)，
+
+但不能出现：
+
+每个Service独立线程。
+
+
+禁止：
+
+one thread per service。
+
+
+==================================================
+# Required Design 22
+# Testability
+==================================================
+
+必须让Resource采集可测试。
+
+
+不要让Unit Test必须修改真实：
+
+/proc
+
+
+建议分析：
+
+Reader abstraction
+
+或
+
+parser接受文本输入。
+
+
+注意：
+
+只做最小test seam。
+
+
+不要建立filesystem abstraction framework。
+
+
+==================================================
+# Testing Requirement
+==================================================
+
+必须设计：
+
+
+Unit Tests
+
+Integration Tests
+
+Static Validation
+
+
+至少覆盖：
+
+
+Test 1
+
+/proc/stat正常解析。
+
+
+Test 2
+
+CPU两次采样计算。
+
+
+Test 3
+
+首次CPU sample没有虚假warning。
+
+
+Test 4
+
+counter regression / invalid sample。
+
+
+Test 5
+
+/proc/meminfo解析。
+
+
+Test 6
+
+MemAvailable计算。
+
+
+Test 7
+
+Memory WARNING。
+
+
+Test 8
+
+Memory CRITICAL。
+
+
+Test 9
+
+Memory critical → warning → clear。
+
+
+Test 10
+
+CPU threshold activate / clear。
+
+
+Test 11
+
+threshold附近flapping保护。
+
+
+Test 12
+
+Resource warning + Service healthy
+
+→ Device WARNING。
+
+
+Test 13
+
+Resource critical
+
+→ Device ERROR。
+
+
+Test 14
+
+Resource clear时仍存在Service failure
+
+→ Device不能错误RUNNING。
+
+
+Test 15
+
+Process PID disappears during sample。
+
+
+Test 16
+
+PID reuse / instance generation mismatch。
+
+
+Test 17
+
+Collector read failure。
+
+
+Test 18
+
+Runtime shutdown during monitoring。
+
+
+Test 19
+
+多个Service采样。
+
+
+Test 20
+
+Resource事件不能触发无依据的Recovery。
+
+
+如果增加Temperature：
+
+增加：
+
+thermal zone discovery
+
+missing zone
+
+invalid temp
+
+multi-zone tests。
+
+
+如果增加GET_RESOURCE_USAGE：
+
+增加IPC request/response和backward compatibility tests。
+
+
+==================================================
+# Runtime Validation Status Rules
+==================================================
+
+项目历史上部分Phase只完成静态验证。
+
+
+Phase5输出必须明确区分：
+
+Implemented
+
+Statically Verified
+
+Host Linux Runtime Verified
+
+RK3588 Runtime Verified
+
+Not Verified
+
+
+禁止把：
+
+test source exists
+
+描述为：
+
+test passed。
+
+
+禁止把：
+
+x86 Linux /proc test
+
+描述为：
+
+RK3588 verified。
+
+
+==================================================
+# Phase5 Non Goals
+==================================================
+
+禁止实现：
+
+
+GPU Monitoring
+
+NPU Monitoring
+
+RKNN Profiling
+
+AI performance monitoring
+
+Cloud Metrics
+
+MQTT
+
+Prometheus Server
+
+Web Dashboard
+
+Database
+
+historical trend storage
+
+AI anomaly prediction
+
+automatic arbitrary service restart based on CPU/memory
+
+dynamic cloud configuration
+
+per-service monitoring thread
+
+complex rule engine
+
+
+==================================================
+# Architecture Decision Rules
+==================================================
+
+重要设计必须输出：
+
+
+方案A
+
+优点
+
+缺点
+
+
+方案B
+
+优点
+
+缺点
+
+
+推荐方案
+
+理由
+
+
+评估：
+
+开发速度
+
+稳定性
+
+维护成本
+
+RK3588/Linux适配
+
+资源开销
+
+可测试性
+
+后续扩展
+
+面试展示价值
+
+
+==================================================
+# Required Phase Definition
+==================================================
+
+最终文档必须明确：
+
+
+Phase ID:
+
+P5
+
+
+Phase Name:
+
+Resource Monitoring & Health Facts
+
+
+Goal:
+
+
+Why:
+
+
+Input:
+
+
+Output:
+
+
+Modified Modules:
+
+
+Interface Changes:
+
+
+Implementation Tasks:
+
+
+Testing:
+
+
+Acceptance Criteria:
+
+
+Risk:
+
+
+Next Phase Dependency:
+
+
+==================================================
+# Suggested docs/P5
+==================================================
+
+根据设计生成：
+
+docs/P5/
+
+
+建议包括：
+
+README.md
+
+ARCHITECTURE.md
+
+RESOURCE_MODEL.md
+
+PROCFS_COLLECTION.md
+
+THRESHOLD_POLICY.md
+
+PROCESS_MONITORING.md
+
+DEVICE_STATE_INTEGRATION.md
+
+CONFIGURATION.md
+
+TEST_PLAN.md
+
+RISK_ANALYSIS.md
+
+AGENTS.md
+
+
+可以合理合并。
+
+
+不要制造空文档。
+
+
+==================================================
+# AGENTS.md Requirement
+==================================================
+
+只包含：
+
+- Phase5特殊规则
+- 不可推断约束
+- 编译方式
+- 目录规则
+- 修改范围
+- 禁止事项
+
+
+不要包含：
+
+项目历史
+
+长篇背景
+
+通用C++编码规范。
+
+
+==================================================
+# Codex Package
+==================================================
+
+设计完成后生成：
+docs/P5/codex_package/
+把codex的各对话的提示词分别给我(不可能用同一个提示词在所有的对话下工作)。让各对话在/docs下找对应内容进行工作。以及各对话是否能够并行或者有先后执行顺序
+codex各对话调用几docs/P5的设计文档，了解任务，自己该干什么，任务边界是什么
+
+
+
+
+每个对话的提示词应该是简短的(参考docs\P4\codex_package的提示词生成)。
+
+
+==================================================
+# Suggested Thread Split
+==================================================
+
+必须先检查实际仓库。
+
+不要机械执行以下划分。
+
+
+建议：
+
+
+Thread 1
+
+Linux Resource Collector
+
+
+负责：
+
+- procfs采集
+- CPU parser
+- memory parser
+- typed snapshot
+- collector test seam
+
+
+禁止：
+
+修改Device State策略。
+
+
+--------------------------------
+
+
+Thread 2
+
+Monitoring Policy & Runtime Integration
+
+
+负责：
+
+- sample scheduling
+- thresholds
+- hysteresis / clear
+- Monitor integration
+- Runtime event publication
+
+
+禁止：
+
+修改Recovery policy。
+
+
+--------------------------------
+
+
+Thread 3
+
+Process Monitoring / Config / Optional IPC
+
+
+负责：
+
+- managed process resource snapshot
+- PID/generation safety
+- monitoring config
+- 如果设计冻结批准，再实现GET_RESOURCE_USAGE
+
+
+禁止：
+
+扩大到GPU/NPU。
+
+
+--------------------------------
+
+
+Thread 4
+
+Test / Review / Limited Fix
+
+
+负责：
+
+- parser tests
+- integration tests
+- state aggregation tests
+- regression
+- shutdown tests
+- architecture review
+- static validation
+- limited fixes
+
+
+不得：
+
+借Review进行大范围重构。
+
+
+==================================================
+# Thread Requirements
+==================================================
+
+每个Thread必须定义：
+
+Goal
+
+Input
+
+Output
+
+Allowed Files
+
+Forbidden Files
+
+Dependencies
+
+Test Requirement
+
+Acceptance Criteria
+
+
+并说明：
+
+Thread执行顺序
+
+哪些可并行
+
+共享文件冲突。
+
+
+==================================================
+# Phase5 Acceptance Criteria
+==================================================
+
+P5完成必须至少满足：
+
+
+1.
+
+真实Linux CPU资源可以从/proc采集。
+
+
+2.
+
+CPU使用率使用有效delta计算。
+
+
+3.
+
+首次采样不会产生虚假CPU负载。
+
+
+4.
+
+真实Linux Memory资源可以采集。
+
+
+5.
+
+Memory使用率使用明确且稳定的定义。
+
+
+6.
+
+采集与health policy职责分离。
+
+
+7.
+
+Resource WARNING可以进入Device WARNING。
+
+
+8.
+
+Resource CRITICAL可以进入Device ERROR。
+
+
+9.
+
+资源恢复可以正确clear latch。
+
+
+10.
+
+clear后重新聚合所有health事实。
+
+
+11.
+
+Service故障不会被resource clear误清除。
+
+
+12.
+
+资源事件不会无依据触发Service recovery。
+
+
+13.
+
+没有第二个Recovery Policy Owner。
+
+
+14.
+
+没有第二个Service Lifecycle Owner。
+
+
+15.
+
+没有one-thread-per-service。
+
+
+16.
+
+Process资源采样避免明显PID reuse问题。
+
+
+17.
+
+采集失败不会因单次错误制造虚假ERROR。
+
+
+18.
+
+采样可以在shutdown时正确停止。
+
+
+19.
+
+测试可使用fixture/fake input，不依赖修改/proc。
+
+
+20.
+
+P1-P4核心接口没有无必要破坏。
+
+
+21.
+
+Unix Domain Socket架构保持。
+
+
+22.
+
+没有GPU/NPU/Cloud/Database范围膨胀。
+
+
+23.
+
+文档和实现任务完全一致。
+
+
+24.
+
+验证状态明确区分static/host/RK3588。
+
+
+==================================================
+# Final Output
+==================================================
+
+最终输出：
+
+1. Current Repository Assessment
+
+2. Phase5 Objective
+
+3. Existing Monitor Gap Analysis
+
+4. Resource Collector Architecture
+
+5. CPU Monitoring Design
+
+6. Memory Monitoring Design
+
+7. Process Monitoring Design
+
+8. Temperature Scope Decision
+
+9. Disk Scope Decision
+
+10. Sampling Strategy
+
+11. Threshold / Hysteresis Policy
+
+12. Resource Event Model
+
+13. Device State Integration
+
+14. Recovery Boundary
+
+15. Configuration Design
+
+16. IPC Impact Decision
+
+17. Module Change List
+
+18. Interface Change List
+
+19. Testing Matrix
+
+20. Risk Analysis
+
+21. Phase5 Acceptance Criteria
+
+22. docs/P5完整内容
+
+23. codex_package完整内容
+
+
+最后单独输出：
+
+PHASE5 DESIGN FREEZE CANDIDATE
+
+
+包含：
+
+Frozen Decisions
+
+Unresolved Decisions
+
+Blocking Issues
+
+Deferred Issues
+
+
+Blocking Issues为空后，
+
+才建议进入Codex代码实现。
+
+
+禁止直接生成C++源码。

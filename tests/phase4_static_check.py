@@ -20,7 +20,7 @@ PROTECTED = (
     "include/runtime/process_supervisor.hpp", "src/service/process_supervisor.cpp",
     "include/runtime/device_state.hpp", "include/runtime/device_state_manager.hpp",
     "src/runtime/device_state_manager.cpp", "src/ipc/frame.hpp", "src/ipc/frame.cpp",
-    "src/ipc/ipc_manager.hpp", "src/ipc/main.cpp", "src/logger/logger.cpp",
+    "src/ipc/ipc_manager.hpp", "src/logger/logger.cpp",
     "include/runtime/logger.hpp", "tools/fake_service/main.cpp",
     "tests/device_state_manager_tests.cpp", "tests/process_lifecycle_tests.cpp",
     "tests/phase2_static_check.py", "tests/phase3_state_static_check.py", "tests/phase3_ipc_static_check.py",
@@ -104,6 +104,7 @@ def baseline(name):
 def check_freeze():
     for name in PROTECTED:
         require(read(name) == baseline(name), "frozen interface/backend changed: " + name)
+    check_native_startup()
     pattern = r"void test_runtime_shutdown_respects_long_grace_period\(\).*?(?=\nvoid |\n\} // namespace)"
     old = re.search(pattern, baseline("tests/phase2_integration_tests.cpp"), re.S)
     new = re.search(pattern, read("tests/phase2_integration_tests.cpp"), re.S)
@@ -120,6 +121,20 @@ def check_freeze():
     require(not re.search(r"\b(?:WILL_FAIL|DISABLED)\b", new_cmake), "masked CTest failure")
     require("src/runtime/recovery_manager.cpp" in read("CMakeLists.txt"), "RM absent from runtime_core")
     require(not (ROOT / "include/service").exists() and not (ROOT / "include/ipc").exists(), "new header tree")
+
+
+def check_native_startup():
+    # P5 CHANGE_LIST opens only main's single config/native wiring. Restore those
+    # three approved edits and retain the byte oracle for CLI/socket/sink lifetime.
+    source = read("src/ipc/main.cpp")
+    load = "        const auto config = runtime::ConfigManager::load_runtime_file(argv[1]);\n"
+    require(source.count(load) == 1 and source.count("ConfigManager::load_") == 1,
+            "main must load one complete config")
+    require("runtime::RuntimeManager core(config, {}," in source and "config.services, [&]" in source,
+            "main lost default native/same-services wiring")
+    restored = source.replace(load, "").replace("RuntimeManager core(config, {},", "RuntimeManager core(argv[1], {},")
+    restored = restored.replace("config.services, [&]", "runtime::ConfigManager::load_file(argv[1]), [&]")
+    require(restored == baseline("src/ipc/main.cpp"), "main changed beyond approved P5 startup wiring")
 
 
 def check_ownership_and_bridge():

@@ -128,6 +128,36 @@ std::optional<ServiceConfig> ServiceManager::queryServiceDefinition(const std::s
 
 std::vector<ServiceStatus> ServiceManager::listServices() const { return all_statuses(); }
 
+std::optional<std::vector<ProcessIdentity>> ServiceManager::trySnapshotProcessIdentities() const {
+    std::unique_lock<std::mutex> lock(mutex_, std::try_to_lock);
+    if (!lock.owns_lock()) return std::nullopt;
+    std::vector<ProcessIdentity> result;
+    result.reserve(services_.size());
+    for (const auto& entry : services_) {
+        const auto& status = entry.second.status;
+        if (status.pid > 0 && status.launched_generation > 0)
+            result.push_back({entry.first, status.pid, status.launched_generation});
+    }
+    return result;
+}
+
+std::optional<std::vector<ProcessIdentity>> ServiceManager::tryValidateProcessIdentities(
+        const std::vector<ProcessIdentity>& captured) const {
+    std::unique_lock<std::mutex> lock(mutex_, std::try_to_lock);
+    if (!lock.owns_lock()) return std::nullopt;
+    std::vector<ProcessIdentity> result;
+    result.reserve(captured.size());
+    for (const auto& identity : captured) {
+        const auto it = services_.find(identity.service_name);
+        if (it == services_.end()) continue;
+        const auto& status = it->second.status;
+        if (identity.pid > 0 && identity.instance_generation > 0 &&
+            status.pid == identity.pid && status.launched_generation == identity.instance_generation)
+            result.push_back(identity);
+    }
+    return result;
+}
+
 std::vector<std::string> ServiceManager::dependency_order() const {
     std::map<std::string, std::size_t> remaining;
     std::map<std::string, std::vector<std::string>> dependents;

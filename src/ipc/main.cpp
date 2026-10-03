@@ -11,14 +11,15 @@ int main(int argc, char** argv) {
         return 2;
     }
     try {
+        const auto config = runtime::ConfigManager::load_runtime_file(argv[1]);
         runtime::IpcManager::DeviceStateSink device_changes;
-        runtime::RuntimeManager core(argv[1], {}, [&](const runtime::DeviceStateSnapshot& state) {
+        runtime::RuntimeManager core(config, {}, [&](const runtime::DeviceStateSnapshot& state) {
             if (device_changes) device_changes(state);
         });
         runtime::IpcManager ipc(argv[2], argv[3],
             [&](runtime::Event event) { core.post(std::move(event)); },
             [&](const std::string& name) { return core.query(name); },
-            runtime::ConfigManager::load_file(argv[1]), [&] { return core.queryDeviceState(); });
+            config.services, [&] { return core.queryDeviceState(); });
         device_changes = ipc.device_state_sink();
         ipc.start();
         core.run();

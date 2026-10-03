@@ -309,6 +309,76 @@ void test_resource_critical_downgrade_and_clear() {
     fixture.expect(DeviceState::recovering);
 }
 
+void test_p5_policy_fifo_downgrade_and_clear_reaggregate_all_health() {
+    Fixture fixture;
+    fixture.running();
+    fixture.changes.clear();
+    EventDispatcher dispatcher;
+    std::vector<RuntimeEvent> facts;
+    dispatcher.subscribe([&](const RuntimeEvent& event) {
+        facts.push_back(event);
+        require(fixture.aggregation.handle(event), "policy fact rejected by aggregation");
+    });
+    Monitor monitor([](Event) {}, 5s, [&](RuntimeEvent event) { dispatcher.publish(std::move(event)); });
+    auto sample = [&](double cpu, double memory) {
+        monitor.report_resources(cpu, memory, base);
+        dispatcher.drain();
+    };
+    sample(0, 80);
+    fixture.expect(DeviceState::warning);
+    sample(0, 95);
+    fixture.expect(DeviceState::error);
+    const auto count = facts.size();
+    sample(0, 94.9);
+    require(facts.size() == count && fixture.changes.size() == 2, "critical hysteresis repeated or cleared");
+    sample(0, 90);
+    fixture.expect(DeviceState::warning);
+    require(facts.size() == count + 1 && facts.back().source == "memory_monitor" && facts.back().active &&
+            facts.back().severity == ResourceSeverity::warning && facts.back().at == base &&
+            fixture.changes.size() == 3 && fixture.changes.back().previous == DeviceState::error,
+            "downgrade must be one active fact without intermediate RUNNING");
+    sample(80, 90);
+    sample(80, 75);
+    fixture.expect(DeviceState::warning); // CPU latch remains after memory clear.
+    fixture.send(RuntimeEventType::service_failed, "control_service");
+    sample(75, 75);
+    fixture.expect(DeviceState::error); // Clear cannot erase critical service failure.
+    fixture.send(RuntimeEventType::recovery_start, "control_service");
+    sample(0, 95);
+    fixture.expect(DeviceState::error); // Critical resource wins over active recovery.
+    sample(0, 75);
+    fixture.expect(DeviceState::recovering);
+    fixture.send(RuntimeEventType::recovery_success, "control_service");
+    fixture.send(RuntimeEventType::service_failed, "vision_service");
+    sample(0, 95);
+    sample(0, 75);
+    fixture.expect(DeviceState::warning); // Optional service fault survives resource clear.
+    require(!facts.back().active && facts.back().source == "memory_monitor", "clear changed source identity");
+}
+
+void test_p5_policy_clear_to_ready_and_offline_remains_terminal() {
+    for (const bool terminal : {false, true}) {
+        Fixture fixture;
+        if (terminal) {
+            fixture.running();
+            fixture.send(RuntimeEventType::service_failed, "control_service");
+            fixture.send(RuntimeEventType::recovery_start, "control_service");
+            fixture.send(RuntimeEventType::recovery_failed, "control_service");
+            fixture.expect(DeviceState::offline);
+        }
+        unsigned published = 0;
+        Monitor monitor([](Event) {}, 5s, [&](RuntimeEvent event) {
+            ++published;
+            require(fixture.aggregation.handle(event), "resource fact rejected in READY/OFFLINE scenario");
+        });
+        monitor.report_resources(0, 95, base);
+        fixture.expect(terminal ? DeviceState::offline : DeviceState::error);
+        monitor.report_resources(0, 75, base);
+        fixture.expect(terminal ? DeviceState::offline : DeviceState::ready);
+        require(published == 3, "direct critical clear should publish only one memory clear");
+    }
+}
+
 void test_stale_recovery_generation_rejected() {
     Fixture fixture;
     fixture.running();
@@ -563,6 +633,8 @@ void test_runtime_fifo_and_start_failure_adapter() {
 
 int main() {
     try {
+        test_p5_policy_fifo_downgrade_and_clear_reaggregate_all_health();
+        test_p5_policy_clear_to_ready_and_offline_remains_terminal();
         test_vision_failure_case1();
         test_control_failure_case2();
         test_normal_startup_and_complete_critical_recovery();

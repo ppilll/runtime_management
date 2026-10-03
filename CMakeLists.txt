@@ -14,6 +14,7 @@ add_library(runtime_core
     src/service/process_supervisor.cpp
     src/service/service_manager.cpp
     src/monitor/monitor.cpp
+    src/monitor/resource_collector.cpp
     src/logger/logger.cpp
 )
 

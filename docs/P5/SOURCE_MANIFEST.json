@@ -1,0 +1,966 @@
+{
+  "repository": "ppilll/runtime_management",
+  "ref": "4843061fce2a329832105d34aaea380a35560c0e",
+  "files": [
+    {
+      "path": "CMakeLists.txt",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "0040296f45440fe5da2d19f0b541cc851050fba0",
+      "size": 1314,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/0040296f45440fe5da2d19f0b541cc851050fba0"
+    },
+    {
+      "path": "docs/P0/RK3588_Phase0_Final_Design_Result.txt",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c2c5df92128d1ed8dfac8a0a07731254e42321a4",
+      "size": 2317,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/c2c5df92128d1ed8dfac8a0a07731254e42321a4"
+    },
+    {
+      "path": "docs/P0/RK3588_Runtime_Management_Phase0_Architecture_Design.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "20fca743575f17b8132ac14c74fdeaa31afc5c83",
+      "size": 5602,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/20fca743575f17b8132ac14c74fdeaa31afc5c83"
+    },
+    {
+      "path": "docs/P1/architecture_review.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "8c4cf19f66eca8142b788fc823083c4d66fe3871",
+      "size": 6050,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/8c4cf19f66eca8142b788fc823083c4d66fe3871"
+    },
+    {
+      "path": "docs/P1/coding_rules.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "78fb7bac65448c3851af745419bedaafd45b62c6",
+      "size": 1121,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/78fb7bac65448c3851af745419bedaafd45b62c6"
+    },
+    {
+      "path": "docs/P1/ipc_protocol.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "bce3136ff7049d0222eb57e844928c19c9cd59db",
+      "size": 2988,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/bce3136ff7049d0222eb57e844928c19c9cd59db"
+    },
+    {
+      "path": "docs/P1/module_design.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d4ecfdc3d76833f63c29b6487805f2d0842476e0",
+      "size": 2453,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/d4ecfdc3d76833f63c29b6487805f2d0842476e0"
+    },
+    {
+      "path": "docs/P1/phase1_architecture.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "3f8e26913b083d9233e286c76d071cc14f97a4f0",
+      "size": 4356,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/3f8e26913b083d9233e286c76d071cc14f97a4f0"
+    },
+    {
+      "path": "docs/P1/review_report.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "48c54586cde00b0ea6fea467553c43e0bdaa9357",
+      "size": 4513,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/48c54586cde00b0ea6fea467553c43e0bdaa9357"
+    },
+    {
+      "path": "docs/P1/runtime_core_contract.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "aebbcbcbdcc096077cce9a5974416dc1fae2c330",
+      "size": 3797,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/aebbcbcbdcc096077cce9a5974416dc1fae2c330"
+    },
+    {
+      "path": "docs/P1/test_strategy.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a007f6c115008104ba0f9360236e05ef437915be",
+      "size": 1647,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/a007f6c115008104ba0f9360236e05ef437915be"
+    },
+    {
+      "path": "docs/P1/thread_plan.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "2be57bf29b1f439b3c77d21f5d1d8b0e5cb45045",
+      "size": 2545,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/2be57bf29b1f439b3c77d21f5d1d8b0e5cb45045"
+    },
+    {
+      "path": "docs/P2/README.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "1b1a7a54101a54dc03045b06162661c407cd633a",
+      "size": 1485,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/1b1a7a54101a54dc03045b06162661c407cd633a"
+    },
+    {
+      "path": "docs/P2/architecture.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "7f843adeb04a393f1488bfec899f227d135c1f68",
+      "size": 2319,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/7f843adeb04a393f1488bfec899f227d135c1f68"
+    },
+    {
+      "path": "docs/P2/codex/thread1_service_manager_prompt.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "0b1fb0d9b686ee81aeb25b4289dd3a8b4801a3b5",
+      "size": 1078,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/0b1fb0d9b686ee81aeb25b4289dd3a8b4801a3b5"
+    },
+    {
+      "path": "docs/P2/codex/thread2_process_prompt.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "45417e6d3980d36c915731acdd482ea58fef230b",
+      "size": 771,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/45417e6d3980d36c915731acdd482ea58fef230b"
+    },
+    {
+      "path": "docs/P2/codex/thread3_recovery_prompt.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "76e24a6c651f5bcebec9387a228176537080d105",
+      "size": 746,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/76e24a6c651f5bcebec9387a228176537080d105"
+    },
+    {
+      "path": "docs/P2/codex/thread4_ipc_prompt.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "4c2aa99c8c5d22779ebf3cd361b3287ae776f7af",
+      "size": 544,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/4c2aa99c8c5d22779ebf3cd361b3287ae776f7af"
+    },
+    {
+      "path": "docs/P2/codex/thread5_test_prompt.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "1915f240ccd6582b001a660d96e7b2d52c38e61d",
+      "size": 569,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/1915f240ccd6582b001a660d96e7b2d52c38e61d"
+    },
+    {
+      "path": "docs/P2/implementation_plan.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "6f0295dca4f1659689b790f8f4565c6778765577",
+      "size": 854,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/6f0295dca4f1659689b790f8f4565c6778765577"
+    },
+    {
+      "path": "docs/P2/ipc_config_extension.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "54a588f4e61cf5688f4b923db860dd188ab7613b",
+      "size": 4725,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/54a588f4e61cf5688f4b923db860dd188ab7613b"
+    },
+    {
+      "path": "docs/P2/ipc_config_implementation.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "0dec4c1bcf3c4b527be2e2b0307eda76e6cc00d6",
+      "size": 3948,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/0dec4c1bcf3c4b527be2e2b0307eda76e6cc00d6"
+    },
+    {
+      "path": "docs/P2/process_backend_implementation.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c93c688e3c6963ebb0b4cb6149b90d10f0ab0a42",
+      "size": 5212,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/c93c688e3c6963ebb0b4cb6149b90d10f0ab0a42"
+    },
+    {
+      "path": "docs/P2/process_lifecycle_design.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a8949eda5a2c40576a96c292a76059765615a037",
+      "size": 1023,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/a8949eda5a2c40576a96c292a76059765615a037"
+    },
+    {
+      "path": "docs/P2/recovery_dependency_design.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "bec96607e226184f0592a0d28b85b69e0be29989",
+      "size": 3462,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/bec96607e226184f0592a0d28b85b69e0be29989"
+    },
+    {
+      "path": "docs/P2/recovery_dependency_implementation.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "21ad4e33235d343c49b1265ae16428af2a0da5a0",
+      "size": 4481,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/21ad4e33235d343c49b1265ae16428af2a0da5a0"
+    },
+    {
+      "path": "docs/P2/testing_strategy.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c3c9858209c17c05fea016d8a50e089db04c5b6f",
+      "size": 861,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/c3c9858209c17c05fea016d8a50e089db04c5b6f"
+    },
+    {
+      "path": "docs/P3/AGENTS.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "09e0cca47f2ced6f582c344d8e54fce88a894077",
+      "size": 878,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/09e0cca47f2ced6f582c344d8e54fce88a894077"
+    },
+    {
+      "path": "docs/P3/AGGREGATION_RULE.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "49001011e77f8009d85585581fc2f764d1c0bf08",
+      "size": 4695,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/49001011e77f8009d85585581fc2f764d1c0bf08"
+    },
+    {
+      "path": "docs/P3/ARCHITECTURE.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "6161abc3dbc69a794799959a3aa958897d24f59e",
+      "size": 928,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/6161abc3dbc69a794799959a3aa958897d24f59e"
+    },
+    {
+      "path": "docs/P3/CODEX_DEPENDENCY.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "2c2926d854a71ba0106203a5f23f833ad07a9171",
+      "size": 512,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/2c2926d854a71ba0106203a5f23f833ad07a9171"
+    },
+    {
+      "path": "docs/P3/CODE_REVIEW_CHECKLIST.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "0c90f8ba26c6b8cf82e1c3855f6de45ba42f85e0",
+      "size": 1723,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/0c90f8ba26c6b8cf82e1c3855f6de45ba42f85e0"
+    },
+    {
+      "path": "docs/P3/DEVICE_STATE_MODEL.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d1e66c3d94680612c1dfd374361e339d4d4c8381",
+      "size": 1190,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/d1e66c3d94680612c1dfd374361e339d4d4c8381"
+    },
+    {
+      "path": "docs/P3/EVENT_MODEL.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "59681e793b94989ec6ac63c4220c32d9c68cf008",
+      "size": 4356,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/59681e793b94989ec6ac63c4220c32d9c68cf008"
+    },
+    {
+      "path": "docs/P3/IPC_EXTENSION.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "bb9d437253fec02ba74250920428f56d1f9c6cfc",
+      "size": 5491,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/bb9d437253fec02ba74250920428f56d1f9c6cfc"
+    },
+    {
+      "path": "docs/P3/MONITOR_INTEGRATION.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "bfb0d23885c46a1582d9df1baea43fdb9e9516d2",
+      "size": 1786,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/bfb0d23885c46a1582d9df1baea43fdb9e9516d2"
+    },
+    {
+      "path": "docs/P3/PERSISTENCE_DESIGN.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d9255e872f15420dd3135b2af77526744733c28a",
+      "size": 501,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/d9255e872f15420dd3135b2af77526744733c28a"
+    },
+    {
+      "path": "docs/P3/README.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "8b6028a19a9e3565d69b9e8c18e1bceec837eaf8",
+      "size": 1233,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/8b6028a19a9e3565d69b9e8c18e1bceec837eaf8"
+    },
+    {
+      "path": "docs/P3/STATE_TRANSITION.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "eab56ab5769b4e23092f08437448b3812543a0ce",
+      "size": 1015,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/eab56ab5769b4e23092f08437448b3812543a0ce"
+    },
+    {
+      "path": "docs/P3/codex/thread1_state_manager_prompt.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "91a5ec3414f7395cf2e22eabed60cb2596fc3b51",
+      "size": 2059,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/91a5ec3414f7395cf2e22eabed60cb2596fc3b51"
+    },
+    {
+      "path": "docs/P3/codex/thread2_event_aggregation_prompt.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "7faf3d3c0f8a0343b57d1ab1fcb4acc699e8b8fb",
+      "size": 1837,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/7faf3d3c0f8a0343b57d1ab1fcb4acc699e8b8fb"
+    },
+    {
+      "path": "docs/P3/codex/thread3_ipc_prompt.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "32b5f82599ad475db16417ffe4d407004e5b284d",
+      "size": 1340,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/32b5f82599ad475db16417ffe4d407004e5b284d"
+    },
+    {
+      "path": "docs/P3/codex/thread4_test_prompt.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e1aebf1fbd9056765abe0c0060abe9ca8ed5fe42",
+      "size": 993,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/e1aebf1fbd9056765abe0c0060abe9ca8ed5fe42"
+    },
+    {
+      "path": "docs/P3/device_state_manager_implementation.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e98256e2bee3e4687132589106c8b1e396a5fa68",
+      "size": 7859,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/e98256e2bee3e4687132589106c8b1e396a5fa68"
+    },
+    {
+      "path": "docs/P3/event_aggregation_implementation.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b0d9f0215a90c0cded1c21823f7a74a141ab506e",
+      "size": 9713,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/b0d9f0215a90c0cded1c21823f7a74a141ab506e"
+    },
+    {
+      "path": "docs/P3/ipc_extension_implementation.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "1741fc0df060ee064c711a1860920a892414feb4",
+      "size": 4206,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/1741fc0df060ee064c711a1860920a892414feb4"
+    },
+    {
+      "path": "docs/P3/phase4/RECOVERY_STRATEGY_INTERFACE.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "86648b586d6e1ef163ca694a5cc527b8672153e7",
+      "size": 1396,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/86648b586d6e1ef163ca694a5cc527b8672153e7"
+    },
+    {
+      "path": "docs/P3/review_fixes.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b703917bc1f2e91749ad14a5a2900d9353261527",
+      "size": 7542,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/b703917bc1f2e91749ad14a5a2900d9353261527"
+    },
+    {
+      "path": "docs/P3/validation_review.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "6e28a64b1ae9e424258845a5ae30dcb4490dd891",
+      "size": 15780,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/6e28a64b1ae9e424258845a5ae30dcb4490dd891"
+    },
+    {
+      "path": "docs/P4/AGENTS.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "1242ae3a7561d51306c3c7f4016dd820ce874849",
+      "size": 2185,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/1242ae3a7561d51306c3c7f4016dd820ce874849"
+    },
+    {
+      "path": "docs/P4/ARCHITECTURE.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "65fb41677a20d7e7fe7444df5a9faffa7b91f91b",
+      "size": 5081,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/65fb41677a20d7e7fe7444df5a9faffa7b91f91b"
+    },
+    {
+      "path": "docs/P4/CHANGE_LIST.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a48c3e3a942058641c3756ae47402fbfa08cc92e",
+      "size": 5433,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/a48c3e3a942058641c3756ae47402fbfa08cc92e"
+    },
+    {
+      "path": "docs/P4/DECISIONS.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "414e1552983daf3d985c2f827589d961dc9e9991",
+      "size": 7683,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/414e1552983daf3d985c2f827589d961dc9e9991"
+    },
+    {
+      "path": "docs/P4/DESIGN_FREEZE_CANDIDATE.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "46ae247d44c3e01389f48fde627eb7c44b70e305",
+      "size": 3531,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/46ae247d44c3e01389f48fde627eb7c44b70e305"
+    },
+    {
+      "path": "docs/P4/DEVICE_STATE_INTEGRATION.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "ad6b6a7933e160dc705c551695e1bdd104ef52a5",
+      "size": 3837,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/ad6b6a7933e160dc705c551695e1bdd104ef52a5"
+    },
+    {
+      "path": "docs/P4/PACKAGE_VALIDATION.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d77a3d5eace07d7c5e3cdf2ac98d1798980b8182",
+      "size": 2079,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/d77a3d5eace07d7c5e3cdf2ac98d1798980b8182"
+    },
+    {
+      "path": "docs/P4/README.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e0a383f5b8a699159774387a0ef421e4ad95bd14",
+      "size": 3556,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/e0a383f5b8a699159774387a0ef421e4ad95bd14"
+    },
+    {
+      "path": "docs/P4/RECOVERY_EVENT_FLOW.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "f31b8b9050220bfe39c536f4fc3f72edb01f0855",
+      "size": 5221,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/f31b8b9050220bfe39c536f4fc3f72edb01f0855"
+    },
+    {
+      "path": "docs/P4/RECOVERY_GENERATION.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "49c637178be12884e9eb868a85c6ce2bae5bac79",
+      "size": 5915,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/49c637178be12884e9eb868a85c6ce2bae5bac79"
+    },
+    {
+      "path": "docs/P4/RECOVERY_MODEL.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "0c856ec9da78c44d2beaf147bf418ad9f26c2fd9",
+      "size": 6133,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/0c856ec9da78c44d2beaf147bf418ad9f26c2fd9"
+    },
+    {
+      "path": "docs/P4/RECOVERY_POLICY.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "460ebb6f1ffe1a136b3cd7e8d35c298e388fd3db",
+      "size": 5826,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/460ebb6f1ffe1a136b3cd7e8d35c298e388fd3db"
+    },
+    {
+      "path": "docs/P4/REPOSITORY_ASSESSMENT.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "4ab22d22f0fe16e21b6df3b027c0b913ddc1fd87",
+      "size": 8186,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/4ab22d22f0fe16e21b6df3b027c0b913ddc1fd87"
+    },
+    {
+      "path": "docs/P4/RISK_ANALYSIS.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "7ab20105efed09349e05814ea3c34f91a0e47b17",
+      "size": 4068,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/7ab20105efed09349e05814ea3c34f91a0e47b17"
+    },
+    {
+      "path": "docs/P4/SERVICE_INTEGRATION.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "6f21f106cb48271d293366e95c0036c3e73f67e0",
+      "size": 6435,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/6f21f106cb48271d293366e95c0036c3e73f67e0"
+    },
+    {
+      "path": "docs/P4/SOURCE_MANIFEST.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "0266ef5d58e900978f852c04006644499665be36",
+      "size": 21002,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/0266ef5d58e900978f852c04006644499665be36"
+    },
+    {
+      "path": "docs/P4/TEST_PLAN.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "7b8d21c5249c3e89bf02ab42f7d137c29c77933d",
+      "size": 10125,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/7b8d21c5249c3e89bf02ab42f7d137c29c77933d"
+    },
+    {
+      "path": "docs/P4/implementation_thread1.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d3b4d482e697b78df9269d9fe186ee2323f05dd7",
+      "size": 12691,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/d3b4d482e697b78df9269d9fe186ee2323f05dd7"
+    },
+    {
+      "path": "docs/P4/implementation_thread2.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "f98b9d43823f8a490efcfb1b1f61cd21169890c8",
+      "size": 11743,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/f98b9d43823f8a490efcfb1b1f61cd21169890c8"
+    },
+    {
+      "path": "docs/P4/implementation_thread3.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d7f0507a70ba7a30cb9d251f5694ab97a594905c",
+      "size": 11128,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/d7f0507a70ba7a30cb9d251f5694ab97a594905c"
+    },
+    {
+      "path": "docs/P4/review_fixes.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "1738ba853161f27084755c352f2f082f313a346a",
+      "size": 4611,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/1738ba853161f27084755c352f2f082f313a346a"
+    },
+    {
+      "path": "docs/P4/static_validation.log",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b2f4225d5a7a17dda3455a41afcdda90b1eb258b",
+      "size": 5589,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/b2f4225d5a7a17dda3455a41afcdda90b1eb258b"
+    },
+    {
+      "path": "docs/P4/thread2_static_check.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "730fa22836a35ad6859cc689447ba6d948e140c0",
+      "size": 4981,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/730fa22836a35ad6859cc689447ba6d948e140c0"
+    },
+    {
+      "path": "docs/P4/thread3_static_check.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "1bf9547305d70dcddb76fd31b5c1acd601aaca8a",
+      "size": 10240,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/1bf9547305d70dcddb76fd31b5c1acd601aaca8a"
+    },
+    {
+      "path": "docs/P4/validation_review.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "3e149bad2604847ddeee640e91fcab81e3549638",
+      "size": 21749,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/3e149bad2604847ddeee640e91fcab81e3549638"
+    },
+    {
+      "path": "include/runtime/config_manager.hpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "cc4a77efa7a166bb885a63b3d50a18f11b931e03",
+      "size": 1132,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/cc4a77efa7a166bb885a63b3d50a18f11b931e03"
+    },
+    {
+      "path": "include/runtime/device_state.hpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "1aae629539ed8fa46cd815928fb1bbffcbdbdd4c",
+      "size": 1460,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/1aae629539ed8fa46cd815928fb1bbffcbdbdd4c"
+    },
+    {
+      "path": "include/runtime/device_state_manager.hpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a9bd63e718755a799da19d64a45fad0de61440a4",
+      "size": 1266,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/a9bd63e718755a799da19d64a45fad0de61440a4"
+    },
+    {
+      "path": "include/runtime/event.hpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "bf2ddcc69b9857ec88d3574736c30e24932679cd",
+      "size": 3035,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/bf2ddcc69b9857ec88d3574736c30e24932679cd"
+    },
+    {
+      "path": "include/runtime/logger.hpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "f753e5038ceeaf991a95f607f1951a99fd89da61",
+      "size": 774,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/f753e5038ceeaf991a95f607f1951a99fd89da61"
+    },
+    {
+      "path": "include/runtime/monitor.hpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "96835161898ae177ec6d8a848983583965311eb4",
+      "size": 1562,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/96835161898ae177ec6d8a848983583965311eb4"
+    },
+    {
+      "path": "include/runtime/process_supervisor.hpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "ebbd1132db541569a03ad82a5db8dfa624e88ba9",
+      "size": 1890,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/ebbd1132db541569a03ad82a5db8dfa624e88ba9"
+    },
+    {
+      "path": "include/runtime/recovery.hpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "746f39efc1ee091b488b27b0c9b656ae9f80b212",
+      "size": 5864,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/746f39efc1ee091b488b27b0c9b656ae9f80b212"
+    },
+    {
+      "path": "include/runtime/recovery_manager.hpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "fa21a93591f8439bc9ba8965e0e4d2681230147e",
+      "size": 4939,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/fa21a93591f8439bc9ba8965e0e4d2681230147e"
+    },
+    {
+      "path": "include/runtime/runtime_manager.hpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "ea9f9ee8074f6b380ced2cfad8cd55d80fb66183",
+      "size": 2408,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/ea9f9ee8074f6b380ced2cfad8cd55d80fb66183"
+    },
+    {
+      "path": "include/runtime/service_aggregation.hpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d6c810e81a409ac0692f363fde4f25ebb5ae4f30",
+      "size": 2378,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/d6c810e81a409ac0692f363fde4f25ebb5ae4f30"
+    },
+    {
+      "path": "include/runtime/service_manager.hpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "08774f61a55fa82b4f235b62dc54069175b37a79",
+      "size": 5854,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/08774f61a55fa82b4f235b62dc54069175b37a79"
+    },
+    {
+      "path": "src/config/config_manager.cpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b01fee7166a817c203fdb522538b599dbedd2295",
+      "size": 13197,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/b01fee7166a817c203fdb522538b599dbedd2295"
+    },
+    {
+      "path": "src/ipc/frame.cpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "2ae24df6c858fd81d6bfc5e380969d567ac09398",
+      "size": 1673,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/2ae24df6c858fd81d6bfc5e380969d567ac09398"
+    },
+    {
+      "path": "src/ipc/frame.hpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "bbbf30d210c541c166d5408b0b4393b6f4f9534a",
+      "size": 623,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/bbbf30d210c541c166d5408b0b4393b6f4f9534a"
+    },
+    {
+      "path": "src/ipc/ipc_manager.cpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "bf870a82b966e699a37c5dd69c71a31b67e10e56",
+      "size": 29447,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/bf870a82b966e699a37c5dd69c71a31b67e10e56"
+    },
+    {
+      "path": "src/ipc/ipc_manager.hpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "3030a6fa1973fac2ed42c980d7bac532c06ea99e",
+      "size": 1722,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/3030a6fa1973fac2ed42c980d7bac532c06ea99e"
+    },
+    {
+      "path": "src/ipc/main.cpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "45468627792fb105a1d460b01971787c06685878",
+      "size": 1134,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/45468627792fb105a1d460b01971787c06685878"
+    },
+    {
+      "path": "src/logger/logger.cpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "bcd5f07b49f3ddf1610e7d6f9dc7bb2fab97ad36",
+      "size": 1424,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/bcd5f07b49f3ddf1610e7d6f9dc7bb2fab97ad36"
+    },
+    {
+      "path": "src/monitor/monitor.cpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "cb2188b7ec406678452a06ff96ee2b26c73139f5",
+      "size": 3671,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/cb2188b7ec406678452a06ff96ee2b26c73139f5"
+    },
+    {
+      "path": "src/runtime/device_state_manager.cpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "12064dbc7a61bdeeb71bdf2635d103397cb7eae9",
+      "size": 5092,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/12064dbc7a61bdeeb71bdf2635d103397cb7eae9"
+    },
+    {
+      "path": "src/runtime/event.cpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "995e29e4d9d6033e09c9c856bbcf35bce37f5ffe",
+      "size": 1904,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/995e29e4d9d6033e09c9c856bbcf35bce37f5ffe"
+    },
+    {
+      "path": "src/runtime/recovery_manager.cpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "91492268e363146295a9e106eab8acdcaef41f39",
+      "size": 34721,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/91492268e363146295a9e106eab8acdcaef41f39"
+    },
+    {
+      "path": "src/runtime/runtime_manager.cpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "1914c4063ab029391b4baae083bab14c4da6cd57",
+      "size": 22875,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/1914c4063ab029391b4baae083bab14c4da6cd57"
+    },
+    {
+      "path": "src/runtime/service_aggregation.cpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "3cc80afee52f17aa0feb5bec10d10e24eb189f61",
+      "size": 15090,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/3cc80afee52f17aa0feb5bec10d10e24eb189f61"
+    },
+    {
+      "path": "src/service/process_supervisor.cpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "27a721cc48965267b55baec9c8977db05321f4a5",
+      "size": 13941,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/27a721cc48965267b55baec9c8977db05321f4a5"
+    },
+    {
+      "path": "src/service/service_manager.cpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "24ab9af2434685845bae9522b68bffd064d22268",
+      "size": 30045,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/24ab9af2434685845bae9522b68bffd064d22268"
+    },
+    {
+      "path": "tests/CMakeLists.txt",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "34661821fbac6aeeb4483d5cf57619f6f63ad95c",
+      "size": 2819,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/34661821fbac6aeeb4483d5cf57619f6f63ad95c"
+    },
+    {
+      "path": "tests/device_ipc_tests.cpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "eed6bfc07a395d8a0d1c246fc7e2533db5e9a4b1",
+      "size": 25845,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/eed6bfc07a395d8a0d1c246fc7e2533db5e9a4b1"
+    },
+    {
+      "path": "tests/device_state_manager_tests.cpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "83e296d23510042eb5077821d801c69173c80a0d",
+      "size": 17393,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/83e296d23510042eb5077821d801c69173c80a0d"
+    },
+    {
+      "path": "tests/event_aggregation_tests.cpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a45569767077c6a2a8d50e8ae85a04768d94069e",
+      "size": 29836,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/a45569767077c6a2a8d50e8ae85a04768d94069e"
+    },
+    {
+      "path": "tests/ipc_integration_tests.cpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "595365e92a6409824aedc4a18687d21c1f765474",
+      "size": 27023,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/595365e92a6409824aedc4a18687d21c1f765474"
+    },
+    {
+      "path": "tests/phase2_integration_tests.cpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "f4616e2dadbd35606bf5b3b3dd0c85487b440587",
+      "size": 20051,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/f4616e2dadbd35606bf5b3b3dd0c85487b440587"
+    },
+    {
+      "path": "tests/phase2_review.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a738137079333a70ac883c44b0191059bfb79a7a",
+      "size": 8729,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/a738137079333a70ac883c44b0191059bfb79a7a"
+    },
+    {
+      "path": "tests/phase2_static_check.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "5611ce669bc287f7ed0c32dfb059ccce898450d4",
+      "size": 6758,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/5611ce669bc287f7ed0c32dfb059ccce898450d4"
+    },
+    {
+      "path": "tests/phase3_aggregation_static_check.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "7879868d3ac7e3ed6010d49236df720c406bd58b",
+      "size": 10210,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/7879868d3ac7e3ed6010d49236df720c406bd58b"
+    },
+    {
+      "path": "tests/phase3_ipc_static_check.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "6e9f06528ffae3a064e2b16ee11d345af1aadece",
+      "size": 7365,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/6e9f06528ffae3a064e2b16ee11d345af1aadece"
+    },
+    {
+      "path": "tests/phase3_state_static_check.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "01f90d6de14272f8bfe6e1efdfa49a05e1d18e4a",
+      "size": 8270,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/01f90d6de14272f8bfe6e1efdfa49a05e1d18e4a"
+    },
+    {
+      "path": "tests/phase3_validation_static_check.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "8771315ef54df6dbd69001664e253485ea26bf1e",
+      "size": 13212,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/8771315ef54df6dbd69001664e253485ea26bf1e"
+    },
+    {
+      "path": "tests/phase4_static_check.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "cd008d0c90a0f662697057660e9a36e4e631050c",
+      "size": 17171,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/cd008d0c90a0f662697057660e9a36e4e631050c"
+    },
+    {
+      "path": "tests/process_lifecycle_tests.cpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "30398fce799b800cffa42f0d92ca5d4b5bbeaabf",
+      "size": 10077,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/30398fce799b800cffa42f0d92ca5d4b5bbeaabf"
+    },
+    {
+      "path": "tests/recovery_coordination_tests.cpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "f1acaadeb1d79a027632e7ff63ccdbe41e8d0620",
+      "size": 28447,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/f1acaadeb1d79a027632e7ff63ccdbe41e8d0620"
+    },
+    {
+      "path": "tests/recovery_dependency_tests.cpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "2604640b46ddc0bb471cc6de98f59519207f2c63",
+      "size": 25654,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/2604640b46ddc0bb471cc6de98f59519207f2c63"
+    },
+    {
+      "path": "tests/recovery_manager_tests.cpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c74c8a3178345203aa01ea6dbc49af5adf28a17e",
+      "size": 47232,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/c74c8a3178345203aa01ea6dbc49af5adf28a17e"
+    },
+    {
+      "path": "tests/runtime_core_tests.cpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "4da7a62813a0d1d29c2c53cc20aa4859a1d1a96d",
+      "size": 36277,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/4da7a62813a0d1d29c2c53cc20aa4859a1d1a96d"
+    },
+    {
+      "path": "tools/fake_service/main.cpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "409b1d74051411217baae474aedcdc06e90b7a98",
+      "size": 4066,
+      "url": "https://api.github.com/repos/ppilll/runtime_management/git/blobs/409b1d74051411217baae474aedcdc06e90b7a98"
+    }
+  ]
+}

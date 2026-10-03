@@ -401,6 +401,54 @@ struct RuntimeThread {
     }
 };
 
+void test_p5_native_default_reader_system_process_and_shutdown() {
+    ReadyPipe ready;
+    TemporaryConfig file(ready);
+    auto config = ConfigManager::load_runtime_file(file.path);
+    config.monitoring.sample_interval_seconds = 1s;
+    config.services.front().shutdown_timeout = 1s;
+    RuntimeManager manager(config); // Default native mode and real bounded proc reader.
+    RuntimeThread thread(manager);
+    ready.wait();
+    const auto initial = manager.query("stubborn").value();
+    std::optional<ResourceSnapshotView> view;
+    const auto deadline = Clock::now() + 8s;
+    do {
+        view = manager.queryResourceSnapshot();
+        if (view && view->snapshot.system.cpu.quality == MetricQuality::valid &&
+            view->snapshot.system.memory.quality == MetricQuality::valid &&
+            view->snapshot.process_scan_quality == MetricQuality::valid &&
+            view->snapshot.processes.size() == 1 && view->snapshot.processes.front().cpu_quality == MetricQuality::valid)
+            break;
+        require(Clock::now() < deadline, "native real procfs did not produce system/process values");
+        std::this_thread::sleep_for(10ms);
+    } while (true);
+    const auto& system = view->snapshot.system;
+    const auto& memory = system.memory.value.value();
+    const auto& row = view->snapshot.processes.front();
+    require(system.cpu.value && *system.cpu.value >= 0 && *system.cpu.value <= 100 &&
+            memory.total_bytes > 0 && memory.available_bytes <= memory.total_bytes &&
+            memory.used_percent >= 0 && memory.used_percent <= 100,
+            "real native system values outside frozen units/bounds");
+    require(row.service_name == "stubborn" && row.pid == initial.pid &&
+            row.instance_generation == initial.launched_generation && row.proc_start_time_ticks &&
+            row.observation_status == ProcessObservationStatus::observed && row.rss_bytes &&
+            row.cpu_percent && *row.cpu_percent >= 0 && row.sampled_at <= view->snapshot.collected_at,
+            "real process measurement lost launch identity/units/completion time");
+    const auto status = manager.query("stubborn").value();
+    require(status.pid == initial.pid && status.restart_count == 0 && status.generation == initial.generation,
+            "real resource sampling changed service lifecycle");
+    thread.finish();
+    const auto final = manager.queryResourceSnapshot().value();
+    const auto state = manager.queryDeviceState();
+    for (unsigned query = 0; query < 20; ++query)
+        require(manager.queryResourceSnapshot()->snapshot.collected_at == final.snapshot.collected_at &&
+                manager.queryDeviceState().timestamp == state.timestamp, "post-join query advanced sampling/health");
+    require(manager.query("stubborn")->state == ServiceState::stopped && manager.query("stubborn")->pid == -1,
+            "native shutdown did not settle/reap the managed child");
+    require_reaped(initial.pid);
+}
+
 void test_runtime_shutdown_respects_long_grace_period() {
     ReadyPipe ready;
     TemporaryConfig config(ready);
@@ -438,6 +486,7 @@ int main(int argc, char** argv) {
             test_real_crash_backoff_and_restart_limit();
             test_heartbeat_timeout_escalation_and_recovery();
             test_real_dependency_start_stop_order();
+            test_p5_native_default_reader_system_process_and_shutdown();
         }
         std::cout << "Phase 2 integration tests passed\n";
         return 0;

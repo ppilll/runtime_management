@@ -18,10 +18,55 @@ volatile std::sig_atomic_t signal_received = 0;
 void on_signal(int) { signal_received = 1; }
 }
 
+namespace {
+RuntimeConfig legacy_config(const std::string& path) {
+    auto config = ConfigManager::load_runtime_file(path);
+    config.monitoring.sample_interval_seconds = std::chrono::seconds{2};
+    return config;
+}
+
+ResourceThresholds native_thresholds(const MonitoringConfig& config) {
+    ConfigManager::validate(config);
+    return {config.cpu_warning, config.memory_warning, config.memory_critical,
+            config.cpu_clear, config.memory_clear, config.memory_critical_clear};
+}
+}
+
+ResourceSamplingSchedule::ResourceSamplingSchedule(std::chrono::seconds interval) : interval_(interval) {
+    if (interval < std::chrono::seconds{1} || interval > std::chrono::seconds{60})
+        throw std::invalid_argument("resource interval must be within 1..60 seconds");
+}
+
+bool ResourceSamplingSchedule::due(Clock::time_point now) const {
+    return !next_due_ || now >= *next_due_;
+}
+
+void ResourceSamplingSchedule::completed(Clock::time_point now) { next_due_ = now + interval_; }
+
+bool ResourceSamplingSchedule::tryQueueTick() { return !tick_pending_.exchange(true); }
+
+void ResourceSamplingSchedule::consumeTick() { tick_pending_ = false; }
+
 RuntimeManager::RuntimeManager(const std::string& config_path, AggregationOptions aggregation,
-                               DeviceStateManager::StateChangeSink device_changes, ResourceThresholds resources)
-    : logger_(std::cout), monitor_([this](Event event) { queue_.push(std::move(event)); },
-          std::chrono::seconds{5}, [this](RuntimeEvent event) { post(std::move(event)); }, resources),
+    DeviceStateManager::StateChangeSink device_changes, ResourceThresholds resources)
+    : RuntimeManager(legacy_config(config_path), std::move(aggregation),
+          std::move(device_changes), ResourceInputMode::external, {}, {}, resources) {}
+
+RuntimeManager::RuntimeManager(RuntimeConfig config, AggregationOptions aggregation,
+    DeviceStateManager::StateChangeSink device_changes, ResourceInputMode input_mode,
+    ResourceCollector::Reader reader, ResourceCollector::Now now)
+    : RuntimeManager(config, std::move(aggregation), std::move(device_changes), input_mode,
+          std::move(reader), std::move(now), native_thresholds(config.monitoring)) {}
+
+RuntimeManager::RuntimeManager(RuntimeConfig config, AggregationOptions aggregation,
+    DeviceStateManager::StateChangeSink device_changes, ResourceInputMode input_mode,
+    ResourceCollector::Reader reader, ResourceCollector::Now now, ResourceThresholds thresholds)
+    : logger_(std::cout), resource_mode_(input_mode), resource_interval_(config.monitoring.sample_interval_seconds),
+      resource_now_(now ? std::move(now) : ResourceCollector::Now{[] { return Clock::now(); }}),
+      collector_(input_mode == ResourceInputMode::native
+          ? std::make_unique<ResourceCollector>(std::move(reader), resource_now_) : nullptr),
+      resource_schedule_(resource_interval_), monitor_([this](Event event) { queue_.push(std::move(event)); },
+          std::chrono::seconds{5}, [this](RuntimeEvent event) { enqueue_resource_fact(std::move(event)); }, thresholds),
       device_states_([this, device_changes = std::move(device_changes)](const DeviceStateSnapshot& state) {
           logger_.log(LogLevel::info, "device_state_manager",
               std::string(state_name(state.previous)) + " -> " + state_name(state.current) +
@@ -36,7 +81,9 @@ RuntimeManager::RuntimeManager(const std::string& config_path, AggregationOption
         if (!aggregation_.handle(event))
             logger_.log(LogLevel::warning, "service_aggregation", "rejected internal runtime event");
     });
-    const auto configs = ConfigManager::load_file(config_path);
+    if (resource_mode_ != ResourceInputMode::native && resource_mode_ != ResourceInputMode::external)
+        throw std::invalid_argument("invalid resource input mode");
+    const auto& configs = config.services;
     for (const auto& config : configs) {
         services_.add(config);
         aggregation_.add_service(config.service_name, config.autostart);
@@ -53,6 +100,7 @@ RuntimeManager::RuntimeManager(const std::string& config_path, AggregationOption
 }
 
 RuntimeManager::~RuntimeManager() {
+    stop_resource_sampling();
     running_ = false;
     if (timer_thread_.joinable()) timer_thread_.join();
     monitor_queue_.push(Event{EventType::shutdown, {}, Clock::now()});
@@ -60,7 +108,28 @@ RuntimeManager::~RuntimeManager() {
     if (timer_fd_ >= 0) ::close(timer_fd_);
 }
 
-void RuntimeManager::post(Event event) { queue_.push(std::move(event)); }
+void RuntimeManager::post(Event event) {
+    if (resource_mode_ == ResourceInputMode::native && event.runtime_event &&
+        (event.runtime_event->source == "cpu_monitor" || event.runtime_event->source == "memory_monitor"))
+        throw std::logic_error("native resource sources are reserved");
+    if (event.type == EventType::shutdown) stop_resource_sampling();
+    queue_.push(std::move(event));
+}
+
+void RuntimeManager::stop_resource_sampling() {
+    std::lock_guard<std::mutex> lock(resource_submit_mutex_);
+    resource_stopped_ = true;
+}
+
+bool RuntimeManager::resource_sampling_active() const { return running_ && !resource_stopped_; }
+
+void RuntimeManager::enqueue_resource_fact(RuntimeEvent event) {
+    std::lock_guard<std::mutex> lock(resource_submit_mutex_);
+    if (resource_stopped_) return;
+    Event envelope{EventType::runtime_event, event.service_name, event.at};
+    envelope.runtime_event = std::move(event);
+    queue_.push(std::move(envelope));
+}
 
 void RuntimeManager::post(DeviceStateEvent event) {
     Event envelope{EventType::device_state, {}, event.timestamp};
@@ -248,7 +317,7 @@ void RuntimeManager::handle_event(const Event& event) {
     if (event.type == EventType::runtime_event) {
         // Only resource facts use the public RuntimeEvent ingress. Lifecycle and
         // recovery facts originate from the captured SM/RM writer adapters.
-        if (event.runtime_event && event.runtime_event->type == RuntimeEventType::resource_warning)
+        if (!shutting_down_ && event.runtime_event && event.runtime_event->type == RuntimeEventType::resource_warning)
             dispatcher_.publish(*event.runtime_event);
         else logger_.log(LogLevel::warning, "runtime_manager", "rejected unowned runtime fact");
     } else if (event.type == EventType::recovery_result) {
@@ -314,7 +383,85 @@ void RuntimeManager::reap_children() {
 
 DeviceStateSnapshot RuntimeManager::queryDeviceState() const { return device_states_.query(); }
 
+std::optional<ResourceSnapshotView> RuntimeManager::queryResourceSnapshot(Clock::time_point now) const {
+    ResourceSnapshotView view;
+    {
+        std::lock_guard<std::mutex> lock(snapshot_mutex_);
+        if (!resource_snapshot_) return std::nullopt;
+        view.snapshot = *resource_snapshot_;
+    }
+    auto age = [now](const auto& metric) -> std::optional<Clock::duration> {
+        if (!metric.last_success_at) return std::nullopt;
+        return now > *metric.last_success_at ? now - *metric.last_success_at : Clock::duration::zero();
+    };
+    view.cpu_age = age(view.snapshot.system.cpu);
+    view.memory_age = age(view.snapshot.system.memory);
+    view.cpu_stale = view.cpu_age && *view.cpu_age > 3 * resource_interval_;
+    view.memory_stale = view.memory_age && *view.memory_age > 3 * resource_interval_;
+    return view;
+}
+
+void RuntimeManager::log_resource_failures(const ResourceSnapshotBundle& snapshot) {
+    const auto at = snapshot.collected_at;
+    auto log = [&](ResourceLogState& state, bool failing, const std::string& name, const std::string& detail) {
+        if (failing) {
+            if (!state.failing || at >= state.next_log) {
+                logger_.log(LogLevel::warning, "resource_monitor", name + " unavailable " + detail);
+                state.next_log = at + std::chrono::seconds{30};
+            }
+        } else if (state.failing) {
+            logger_.log(LogLevel::info, "resource_monitor", name + " collection recovered");
+        }
+        state.failing = failing;
+    };
+    log(cpu_log_, snapshot.system.cpu.quality == MetricQuality::unavailable, "CPU",
+        "consecutive_errors=" + std::to_string(snapshot.system.cpu.consecutive_errors));
+    log(memory_log_, snapshot.system.memory.quality == MetricQuality::unavailable, "Memory",
+        "consecutive_errors=" + std::to_string(snapshot.system.memory.consecutive_errors));
+    std::size_t failed = 0;
+    for (const auto& row : snapshot.processes)
+        if (row.observation_status != ProcessObservationStatus::observed ||
+            row.cpu_quality == MetricQuality::unavailable) ++failed;
+    log(process_log_, snapshot.process_scan_quality == MetricQuality::unavailable || failed != 0,
+        "process scan", "failed_rows=" + std::to_string(failed) +
+        " total_rows=" + std::to_string(snapshot.processes.size()));
+}
+
+void RuntimeManager::sample_resources() {
+    if (!resource_sampling_active()) return;
+    const auto started = resource_now_();
+    ResourceSnapshotBundle snapshot;
+    snapshot.system = collector_->collectSystem();
+    if (!resource_sampling_active()) return;
+    const auto captured = services_.trySnapshotProcessIdentities();
+    auto scan = collector_->collectProcesses(captured, [this](const auto& identities) {
+        return services_.tryValidateProcessIdentities(identities);
+    }, resource_interval_, [this] { return resource_sampling_active(); });
+    snapshot.process_scan_quality = scan.quality;
+    snapshot.processes = std::move(scan.processes);
+    const auto completed = resource_now_();
+    snapshot.collected_at = completed;
+    {
+        std::lock_guard<std::mutex> submit(resource_submit_mutex_);
+        if (!resource_sampling_active()) return;
+        std::lock_guard<std::mutex> cache(snapshot_mutex_);
+        resource_snapshot_ = snapshot;
+    }
+    // The private sink rechecks the synchronized stop gate for every queued fact.
+    if (!resource_sampling_active()) return;
+    monitor_.observeResources(snapshot.system);
+    log_resource_failures(snapshot);
+    if (completed - started > resource_interval_ && (!next_overrun_log_ || completed >= *next_overrun_log_)) {
+        logger_.log(LogLevel::warning, "resource_monitor", "collection exceeded sampling interval; next cycle postponed");
+        next_overrun_log_ = completed + std::chrono::seconds{30};
+    }
+    // Includes policy/logging cost, and advances even after expected read failures.
+    resource_schedule_.completed(resource_now_());
+}
+
 void RuntimeManager::reportResourceUsage(double cpu_percent, double memory_percent, Clock::time_point at) {
+    if (resource_mode_ == ResourceInputMode::native)
+        throw std::logic_error("native mode rejects external resource percentages");
     monitor_.report_resources(cpu_percent, memory_percent, at);
 }
 
@@ -353,14 +500,29 @@ void RuntimeManager::run() {
     }
     try {
         monitor_thread_ = std::thread([this] {
-            for (;;) {
-                Event event{};
-                if (!monitor_queue_.pop_for(event, std::chrono::milliseconds(200))) {
-                    if (!running_) break;
-                    continue;
+            try {
+                for (;;) {
+                    Event event{};
+                    if (!monitor_queue_.pop_for(event, std::chrono::milliseconds(200))) {
+                        if (!running_) break;
+                        continue;
+                    }
+                    if (event.type == EventType::shutdown) break;
+                    if (event.type == EventType::health_check) {
+                        resource_schedule_.consumeTick();
+                        if (!resource_sampling_active()) continue;
+                        // Heartbeat uses actual time and runs before any procfs I/O.
+                        monitor_.check(Clock::now());
+                        if (resource_mode_ == ResourceInputMode::native && resource_sampling_active() &&
+                            resource_schedule_.due(resource_now_())) sample_resources();
+                    }
                 }
-                if (event.type == EventType::shutdown) break;
-                if (event.type == EventType::health_check) monitor_.check(event.at);
+            } catch (...) {
+                monitor_failure_ = std::current_exception();
+                stop_resource_sampling();
+                try { logger_.log(LogLevel::error, "resource_monitor", "fatal monitor worker exception; requesting shutdown"); }
+                catch (...) {} // Cleanup still owns the original worker exception.
+                post(Event{EventType::shutdown, {}, Clock::now()});
             }
         });
         timer_thread_ = std::thread([this] {
@@ -375,10 +537,12 @@ void RuntimeManager::run() {
                     }
                     break;
                 }
-                if (running_) monitor_queue_.push(Event{EventType::health_check, {}, Clock::now()});
+                if (running_ && resource_schedule_.tryQueueTick())
+                    monitor_queue_.push(Event{EventType::health_check, {}, Clock::now()});
             }
         });
     } catch (...) {
+        stop_resource_sampling();
         running_ = false;
         if (timer_thread_.joinable()) timer_thread_.join();
         monitor_queue_.push(Event{EventType::shutdown, {}, Clock::now()});
@@ -412,6 +576,7 @@ void RuntimeManager::run() {
     } catch (...) {
         failure = std::current_exception();
     }
+    stop_resource_sampling();
     shutting_down_ = true;
     try {
         recovery_->cancelAll(Clock::now());
@@ -423,6 +588,7 @@ void RuntimeManager::run() {
     if (timer_thread_.joinable()) timer_thread_.join();
     monitor_queue_.push(Event{EventType::shutdown, {}, Clock::now()});
     if (monitor_thread_.joinable()) monitor_thread_.join();
+    if (!failure && monitor_failure_) failure = monitor_failure_;
     ::close(timer_fd_);
     timer_fd_ = -1;
     // Normal runtime shutdown preserves the last health snapshot, as in Thread 1.

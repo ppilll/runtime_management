@@ -49,3 +49,13 @@ add_executable(recovery_coordination_tests recovery_coordination_tests.cpp)
 target_link_libraries(recovery_coordination_tests PRIVATE runtime_core)
 add_test(NAME phase4_recovery_coordination COMMAND recovery_coordination_tests)
 set_tests_properties(phase4_recovery_coordination PROPERTIES TIMEOUT 180)
+
+add_executable(resource_collector_tests resource_collector_tests.cpp)
+target_link_libraries(resource_collector_tests PRIVATE runtime_core)
+add_test(NAME phase5_resource_collector_unit COMMAND resource_collector_tests)
+set_tests_properties(phase5_resource_collector_unit PROPERTIES TIMEOUT 10)
+
+add_executable(resource_monitoring_tests resource_monitoring_tests.cpp)
+target_link_libraries(resource_monitoring_tests PRIVATE runtime_core)
+add_test(NAME phase5_resource_monitoring_unit COMMAND resource_monitoring_tests)
+set_tests_properties(phase5_resource_monitoring_unit PROPERTIES TIMEOUT 60)

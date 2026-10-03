@@ -118,10 +118,22 @@ def check_review_fixes():
     require({key: float(value) for key, value in defaults.items()} ==
             dict(cpu_warning=80.0, memory_warning=80.0, memory_critical=95.0), "resource defaults differ from contract")
     monitor = masked_source(read("src/monitor/monitor.cpp"))
-    for snippet in ("std::isfinite(value)", "thresholds_.memory_warning >= thresholds_.memory_critical",
-                    "memory_percent >= thresholds_.memory_critical ? ResourceSeverity::critical",
-                    "memory.active = memory_percent >= thresholds_.memory_warning", "resources_(std::move(memory))"):
+    # P5 CHANGE_LIST: typed, change-only hysteresis replaces per-sample facts.
+    # Keep severity/defaults/adapter tests, and require the shared policy path.
+    for snippet in ("std::isfinite(value)", "thresholds.memory_warning >= thresholds.memory_critical",
+                    "observeResources(snapshot);", "snapshot.cpu.quality == MetricQuality::valid",
+                    "snapshot.memory.quality == MetricQuality::valid", "std::lock_guard<std::mutex> lock(resource_mutex_)",
+                    "if (previous && *previous == next) return;", "cpu_pressure_ == Pressure::warning",
+                    "value <= *thresholds_.cpu_clear", "value <= *thresholds_.memory_clear",
+                    "memory_pressure_ == Pressure::critical", "value <= *thresholds_.memory_critical_clear",
+                    "value >= thresholds_.memory_critical", "fact.active = next != Pressure::normal",
+                    "ResourceSeverity::critical : ResourceSeverity::warning", "resources_(std::move(fact))"):
         require(snippet in monitor, "resource producer wiring missing: " + snippet)
+    resource_test = test_body(read("tests/runtime_core_tests.cpp"), "test_resource_monitor_thresholds")
+    for snippet in ("94.9", "report_resources(0, 95", "report_resources(80, 80", "report_resources(0, 75",
+                    "report_resources(0, 90", "facts.size()", "ResourceSeverity::critical",
+                    "quiet_NaN", "ResourceThresholds{60, 70, 90}"):
+        require(snippet in resource_test, "P5 migrated threshold oracle missing: " + snippet)
     service = masked_source(read("src/service/service_manager.cpp"))
     for snippet in ("++service.status.generation", "service.status.generation, recovery_exhausted",
                     "ServiceManager::finishRecoveryFailure", "ServiceChangeCause::recovery_finalization",
