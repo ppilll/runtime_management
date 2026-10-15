@@ -1,0 +1,156 @@
+P6 T4 STATIC VALIDATION ONLY
+Date: 2026-10-15 Asia/Shanghai
+Python: 3.12.14 (main, Aug 25 2026, 14:01:42) [MSC v.1944 64 bit (AMD64)]
+Platform: Windows-11-10.0.22631-SP0
+Runtime HEAD: f8507027c87a9ae9899f51da708f8d469552c473
+VisionArm: local isolated source package without Git metadata; ADR-P6-T2-01 open
+All PASS below means source/contract checks only. No hardware acceptance.
+
+COMMAND: ['C:\\Users\\Liu\\.local\\share\\liepin-cli\\.venv\\Scripts\\python.exe', '-B', 'tests/phase3_validation_static_check.py']
+EXIT: 0
+STDOUT:
+CHECK: Phase2
+PASS: 47 C++ files; local includes, delimiters, comments/literals, conflict markers
+PASS: 190 test functions invoked by main; 14 targets, 15 CTest entries
+PASS: added test/checker/report whitespace and final newlines
+LIMIT: source structure only; C++ type/link correctness and runtime behavior are unverified
+CHECK: Phase3 state
+PASS: 47 C++ files; local includes, delimiters, comments/literals, conflict markers
+PASS: 190 test functions invoked by main; 14 targets, 15 CTest entries
+PASS: seven states, nine documented table edges; matrix has 9 allowed / 54 undefined pairs
+PASS: 7 paths through the extracted table, including boot, error and recovery entry
+PASS: internal ownership/query/event wiring; task artifacts whitespace and final newlines
+LIMIT: source-only validation; C++ compilation, runtime behavior and concurrency are unverified
+CHECK: Phase3 aggregation
+PASS: 47 C++ files; 190 test functions; 14 targets, 15 CTest entries
+PASS: original eight + one component event types/labels; static criticality, priority and runtime adapter structure
+PASS: nine original plus 15 aggregate triples (24 total); 9 extracted-table scenario paths
+PASS: four requested C++ scenarios registered; dispatcher FIFO structure; artifact whitespace
+LIMIT: source/contract checks only; C++ execution, types/linking and concurrency remain unverified
+CHECK: Phase3 IPC
+PASS: 47 C++ files; includes, delimiters, literals and conflict markers
+PASS: 190 test functions invoked by main; 14 targets, 15 CTest entries
+PASS: unchanged legacy types/frame sizes; three new requests; 4 valid JSON examples
+PASS: runtime query/sink wiring, subscription sequence boundary, bounded queues and gap disconnect
+PASS: task artifact whitespace/final newlines and Python syntax
+LIMIT: source only; C++ types/linking, socket behavior and concurrency are unverified
+PASS: explicit-target test declares 441 triples: 24 allowed / 417 rejected
+PASS: full boot/critical recovery and all three service heartbeat recovery scenarios declared
+PASS: Thread4 artifacts (including untracked files), Python syntax and existing test registration
+PASS: four review fixes and health-query wiring; 11 remediation tests declared and invoked
+LIMIT: source/contract checks only; C++ behavior/concurrency unverified; remediation details in review_fixes.md
+STDERR:
+
+COMMAND: ['C:\\Users\\Liu\\.local\\share\\liepin-cli\\.venv\\Scripts\\python.exe', '-B', 'tests/phase4_static_check.py']
+EXIT: 0
+STDOUT:
+PASS (static): 47 C++ files, 190 main-wired tests, 14 targets/15 CTest entries
+PASS (static): 16 guarded files (including pinned P6 migrations), original six-second/PID/reap regression and old registrations
+PASS (static): single policy owner, captured bridge, cancellation/timeout/ingress and IPC contracts
+PASS (static): P4-01..32 plus P4-19b map to 43 assertion-bearing test functions; 441 target triples retained
+LIMIT: source-only evidence; no C++ compilation, runtime tests, concurrency or ARM64 verification
+STDERR:
+
+COMMAND: ['C:\\Users\\Liu\\.local\\share\\liepin-cli\\.venv\\Scripts\\python.exe', '-B', 'tests/phase5_static_check.py']
+EXIT: 0
+STDOUT:
+PASS (P5 static): 47 C++ files; 190 main-wired tests; 14 targets/15 CTest entries
+PASS (P5 static): 27 guarded files (including pinned P6 migrations); 73 historical documents/logs; old test bodies and six-second/PID/reap retained
+PASS (P5 static): approved P3 Monitor/P4 main plus P6 CHANGE_LIST migrations; all P4 COVERAGE/owner/budget/terminal/DSM/IPC checks retained
+PASS (P5 static): bounded measurement, launch anchors, batch try-lock/revalidation, units, typed policy, native ingress, query, gates and two workers
+PASS (P5 static): 36 plan IDs map to 61 assertion-bearing functions; 24 acceptance rows present
+LIMIT: source/contract evidence only; assertions, concurrency, live procfs and performance are Not Verified
+STDERR:
+
+COMMAND: ['C:\\Users\\Liu\\.local\\share\\liepin-cli\\.venv\\Scripts\\python.exe', '-B', 'tests/phase6_static_check.py', '--visionarm-root', 'F:\\嵌入式Linux学习资料\\Vision Arm\\Visionram_win']
+EXIT: 0
+STDOUT:
+CHECK: Phase2
+PASS: 47 C++ files; local includes, delimiters, comments/literals, conflict markers
+PASS: 190 test functions invoked by main; 14 targets, 15 CTest entries
+PASS: added test/checker/report whitespace and final newlines
+LIMIT: source structure only; C++ type/link correctness and runtime behavior are unverified
+CHECK: Phase3 state
+PASS: 47 C++ files; local includes, delimiters, comments/literals, conflict markers
+PASS: 190 test functions invoked by main; 14 targets, 15 CTest entries
+PASS: seven states, nine documented table edges; matrix has 9 allowed / 54 undefined pairs
+PASS: 7 paths through the extracted table, including boot, error and recovery entry
+PASS: internal ownership/query/event wiring; task artifacts whitespace and final newlines
+LIMIT: source-only validation; C++ compilation, runtime behavior and concurrency are unverified
+CHECK: Phase3 aggregation
+PASS: 47 C++ files; 190 test functions; 14 targets, 15 CTest entries
+PASS: original eight + one component event types/labels; static criticality, priority and runtime adapter structure
+PASS: nine original plus 15 aggregate triples (24 total); 9 extracted-table scenario paths
+PASS: four requested C++ scenarios registered; dispatcher FIFO structure; artifact whitespace
+LIMIT: source/contract checks only; C++ execution, types/linking and concurrency remain unverified
+CHECK: Phase3 IPC
+PASS: 47 C++ files; includes, delimiters, literals and conflict markers
+PASS: 190 test functions invoked by main; 14 targets, 15 CTest entries
+PASS: unchanged legacy types/frame sizes; three new requests; 4 valid JSON examples
+PASS: runtime query/sink wiring, subscription sequence boundary, bounded queues and gap disconnect
+PASS: task artifact whitespace/final newlines and Python syntax
+LIMIT: source only; C++ types/linking, socket behavior and concurrency are unverified
+PASS: explicit-target test declares 441 triples: 24 allowed / 417 rejected
+PASS: full boot/critical recovery and all three service heartbeat recovery scenarios declared
+PASS: Thread4 artifacts (including untracked files), Python syntax and existing test registration
+PASS: four review fixes and health-query wiring; 11 remediation tests declared and invoked
+LIMIT: source/contract checks only; C++ behavior/concurrency unverified; remediation details in review_fixes.md
+PASS (static): 47 C++ files, 190 main-wired tests, 14 targets/15 CTest entries
+PASS (static): 16 guarded files (including pinned P6 migrations), original six-second/PID/reap regression and old registrations
+PASS (static): single policy owner, captured bridge, cancellation/timeout/ingress and IPC contracts
+PASS (static): P4-01..32 plus P4-19b map to 43 assertion-bearing test functions; 441 target triples retained
+LIMIT: source-only evidence; no C++ compilation, runtime tests, concurrency or ARM64 verification
+PASS (P5 static): 47 C++ files; 190 main-wired tests; 14 targets/15 CTest entries
+PASS (P5 static): 27 guarded files (including pinned P6 migrations); 73 historical documents/logs; old test bodies and six-second/PID/reap retained
+PASS (P5 static): approved P3 Monitor/P4 main plus P6 CHANGE_LIST migrations; all P4 COVERAGE/owner/budget/terminal/DSM/IPC checks retained
+PASS (P5 static): bounded measurement, launch anchors, batch try-lock/revalidation, units, typed policy, native ingress, query, gates and two workers
+PASS (P5 static): 36 plan IDs map to 61 assertion-bearing functions; 24 acceptance rows present
+LIMIT: source/contract evidence only; assertions, concurrency, live procfs and performance are Not Verified
+PASS (P6 static): pinned migrations; every pre-P6 test body and original 12/13 registration prefix; frozen owners
+PASS (P6 static): exact child/launch/session writer gates; replay/lease/order, private bounds, read-only cache and shutdown
+PASS (P6 static): aggregation inverse matches baseline exactly outside component extension; event ordinals/priority/local clear
+PASS (P6 static): peer capture, bounded weak replies/inputs, bound type4, legacy configuration functions and explicit registry
+PASS (P6 static): frozen JSON; 30 assertion-bearing P6 functions plus combination regression; 38/28/10 review rows
+PASS (static): 100 original files unchanged; 74 original functions preserved
+PASS (static): changed/new source whitespace, includes, lexical delimiters and literals
+PASS (static): complete same-version P6 docs and frozen T1 JSON fixture
+PASS (static): owner/client/CLI/lifecycle guards; 8 assertion-bearing harness functions wired to main
+LIMIT: source/schema checks only; concurrency, IPC and hardware behavior are not proved
+PASS (T4 static): three assertion-bearing PTY functions, canonical codec/UART linkage, HUP/symlink/reboot/CRC/timeout/RAII guards
+LIMIT: source structure only; no PTY behavior or product acceptance result
+LIMIT (P6): VisionArm has no Git identity; ADR-P6-T2-01 remains open; no combined behavioral acceptance
+PASS (P6 static): source/contract audit complete
+LIMIT: static evidence only; source presence and assertion wiring do not establish behavior, timing, hardware or P6 DONE
+STDERR:
+
+COMMAND: ['git', '-c', 'core.safecrlf=false', 'diff', '--check']
+EXIT: 0
+STDOUT:
+STDERR:
+
+RAW SHA256 OF REVIEWED LOCAL FILES (no version claims for isolated package):
+Runtime tests/phase6_static_check.py 80af31dede88458f91afbb3a42fe6b151fc19de34bd740a163f20e59430bada8
+Runtime tests/event_aggregation_tests.cpp c5f2f35e2d721f4a13e380371276e12a3530390317a410444fd344a355664b17
+Runtime tests/component_health_tests.cpp 55890bdd1bedc021699fb1d3df6abc722e77b7462816ea63fc95a5f29517b76e
+Runtime tests/component_ipc_tests.cpp 680e5c6b0b0bb4e77bd023011a58794d4a66c0e15657c89b15b360f59a441b18
+Runtime docs/P6/validation_review.md 57532c1657ba0691bfad1ed688f6ad24fcfaaab1870a8d8c401fa76863b6d985
+Runtime docs/P6/review_fixes.md 8c7a1c4585f09e4180bb822e18140eed77a906e01951dc0cb55685aaedd57507
+Runtime docs/P6/validation_review_visionarm.md 2225545a129dfbc1aa03dc94deaa872a17c5ba709f3663e5c09373a75373c0e5
+VisionArm visionram/include/control/uart_health_projection.h 34b3249b9e457089da78d1ef0785c6c528a02e664684c7803786ca15f4f45ef4
+VisionArm visionram/include/control/uart_link.h 4043ff981283c3ad144a26413ff738b0b9fe688a2f9b61abe57508c968dc00ec
+VisionArm visionram/src/control/uart_link.cpp bac753768e57ecb5c2471e1e795b513546c74f05514acf5354d2cfb6d68726fa
+VisionArm visionram/include/runtime/runtime_supervisor_client.h 4ee7f5e8efb4bad6a15842938124f1557c012b163d4b3e5fb01e6f30d42d0be4
+VisionArm visionram/src/runtime/runtime_supervisor_client.cpp 1582fdbed2cf9d667fa2bcb1403b94f390e287551e8f061023bd81b14352fda9
+VisionArm visionram/include/runtime/runtime_app.h 60e1738a72436b938de98a01b871ac9a38d6be74d273947f7fcabf3d120e5bd8
+VisionArm visionram/src/runtime/runtime_cli.cpp 4a3b2dc135d25dae5ccd75a4d0a0f4f1e2cd5a529cff29bfd4264078db810e0f
+VisionArm visionram/src/runtime/runtime_components.cpp f3775ad273429215b852a5315df7ba8a915e8db1a45ac7c75a543e70d810237b
+VisionArm visionram/src/runtime/CMakeLists.txt 46c7cbada3cc23368cf519f621ff6bbfee72ee5eca84e7df772b0f7634d6d004
+VisionArm tools/test_apps/runtime_supervision/CMakeLists.txt cdd24ea3b0211a00141237792aec796bd5840f4dfe6808f71542ca317d1c2113
+VisionArm tools/test_apps/runtime_supervision/tests/runtime_supervision_tests.cpp 86f7d9a6116641ade89882eee326597a07301bea98874c5ebcb1360fd1780bfb
+VisionArm tools/test_apps/runtime_supervision/tests/runtime_pty_tests.cpp 431150dce40b1c728a4422ba854f2fc205a4ca95aaab40c2a5c651cf5fac34c9
+VisionArm tools/test_apps/runtime_supervision/tests/phase6_adapter_static_check.py 765479e1f6dcde5c8bc2b70191dd5588cf41c8dfce3b0e690b8d26eed7497db1
+VisionArm tools/test_apps/runtime_supervision/tests/phase6_pty_static_check.py 3bedc8cbde6d42b29d07833c3f15cd8be1a4f384816f69488d430579e7422ae9
+VisionArm tools/test_apps/runtime_supervision/fixtures/p6_t2_source_baseline.json efd807b0e4b19651c4e0697e2cf436f03ce8da5a477cef1f59d412fd0916d39a
+VisionArm docs/P6/validation_review_visionarm.md 2225545a129dfbc1aa03dc94deaa872a17c5ba709f3663e5c09373a75373c0e5
+
+RESULT: PASS (static scope only)

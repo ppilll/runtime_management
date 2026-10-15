@@ -370,6 +370,7 @@ void ServiceManager::handle(const Event& event) {
             break;
         case EventType::heartbeat:
             if (service.status.state == ServiceState::running && event.at >= service.started &&
+                (!event.instance_generation || *event.instance_generation == service.status.launched_generation) &&
                 (event.pid <= 0 || event.pid == service.status.pid) &&
                 (!service.status.heartbeat_time || event.at >= *service.status.heartbeat_time)) {
                 service.status.heartbeat_time = event.at;

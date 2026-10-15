@@ -85,6 +85,7 @@ def snippets(source, required, label):
 
 
 def check_protection():
+    from phase6_static_check import check_approved_freeze, legacy_checker
     protected = set(p4.PROTECTED) | {
         "include/runtime/event.hpp", "src/runtime/event.cpp",
         "include/runtime/service_aggregation.hpp", "src/runtime/service_aggregation.cpp",
@@ -93,7 +94,7 @@ def check_protection():
         "tests/phase3_aggregation_static_check.py",
     }
     for name in protected:
-        require(read(name) == baseline(name), "P5 protected file changed: " + name)
+        check_approved_freeze(name, baseline(name))
     history = subprocess.run(["git", "ls-tree", "-r", "--name-only", BASELINE, "docs/P0", "docs/P1",
                               "docs/P2", "docs/P3", "docs/P4"], cwd=ROOT, check=True, capture_output=True).stdout.decode().splitlines()
     for name in history:
@@ -106,7 +107,7 @@ def check_protection():
     start, end = '    monitor = masked_source(read("src/monitor/monitor.cpp"))', '    service = masked_source(read("src/service/service_manager.cpp"))'
     require(old_p3[:old_p3.index(start)] == new_p3[:new_p3.index(start)] and
             old_p3[old_p3.index(end):] == new_p3[new_p3.index(end):], "P3 migration escaped Monitor oracle")
-    old_p4, new_p4 = baseline("tests/phase4_static_check.py"), read("tests/phase4_static_check.py")
+    old_p4, new_p4 = baseline("tests/phase4_static_check.py"), legacy_checker("tests/phase4_static_check.py")
     restored = new_p4.replace('"src/ipc/ipc_manager.hpp", "src/logger/logger.cpp",',
                               '"src/ipc/ipc_manager.hpp", "src/ipc/main.cpp", "src/logger/logger.cpp",')
     restored = restored.replace("    check_native_startup()\n", "")
@@ -174,7 +175,11 @@ def check_collector_identity_and_units():
         require(not re.search(r"\b(?:processes_|monitor_|logger_|generation\+\+|startService|stopService)\b", masked_source(body)),
                 "SM identity query mutates lifecycle")
         restored = restored.replace(body + "\n\n", "")
-    require(restored == baseline(sm_path), "P5 changed SM lifecycle outside two read-only methods")
+    # P6 permits only this additional launch predicate in the original heartbeat path.
+    predicate = "                (!event.instance_generation || *event.instance_generation == service.status.launched_generation) &&\n"
+    require(restored.count(predicate) == 2, "P6 heartbeat and original health_missed instance predicates required")
+    restored = restored.replace(predicate, "", 1)
+    require(restored == baseline(sm_path), "SM changed outside two read-only methods and bound heartbeat predicate")
     monitor = read("src/monitor/monitor.cpp")
     for name in ("watch", "unwatch", "heartbeat", "check"):
         signature = r"void Monitor::" + name + r"\([^{}]*\)"
@@ -183,8 +188,9 @@ def check_collector_identity_and_units():
 
 
 def check_config_policy_runtime():
+    from phase6_static_check import read_baseline_p6
     config = read("src/config/config_manager.cpp")
-    snippets(config, ("return load_runtime_file(path).services", "return {std::move(result), monitoring(*object)}",
+    snippets(config, ("return load_runtime_file(path).services", "return {std::move(result), monitoring(*object), std::move(health_config)}",
         "config.cpu_clear < config.cpu_warning", "config.memory_clear < config.memory_warning",
         "config.memory_warning <= config.memory_critical_clear", "config.memory_critical_clear < config.memory_critical",
         "std::isfinite(value)", "sample_interval_seconds.count() < 1", "sample_interval_seconds.count() > 60"), "global config")
@@ -193,9 +199,14 @@ def check_config_policy_runtime():
     header = read("include/runtime/config_manager.hpp")
     require(function(header, "struct ServiceConfig") == function(baseline("include/runtime/config_manager.hpp"), "struct ServiceConfig"),
             "legacy ServiceConfig layout changed")
-    parser = config[config.index("class Parser"):config.index("MonitoringConfig monitoring(")]
+    parser = function(config, r"class Parser")
     old = baseline("src/config/config_manager.cpp")
-    require(parser == old[old.index("class Parser"):old.index("ServiceConfig service(")], "legacy integer parser changed")
+    require(parser == function(old, r"class Parser"), "legacy integer parser changed")
+    for signature in (r"MonitoringConfig monitoring\(const Object& root\)",
+                      r"ServiceConfig service\(const Json& value\)",
+                      r"void ConfigManager::validate\(const MonitoringConfig& config\)"):
+        require(function(config, signature) == function(read_baseline_p6("src/config/config_manager.cpp"), signature),
+                "P6 changed old monitoring/service parser: " + signature)
     p4.check_review_fixes()  # Finite/typed validity/change-only/inclusive policy plus old terminal oracles.
     policy = function(read("src/monitor/monitor.cpp"), r"void Monitor::observeResources\([^{}]*\)")
     require(policy.index("throw std::invalid_argument") < policy.index("lock(resource_mutex_)") <
@@ -225,10 +236,24 @@ def check_config_policy_runtime():
     snippets(query, ("view.snapshot = *resource_snapshot_", "std::nullopt", "> 3 * resource_interval_", "Clock::duration::zero()"), "query")
     for name in ("captured_recovery", "cancel_closure", "apply_change", "drain_work", "reap_children"):
         signature = r"(?:bool|void) RuntimeManager::" + name + r"\([^{}]*\)(?: const)?"
-        require(function(runtime, signature) == function(baseline("src/runtime/runtime_manager.cpp"), signature),
+        body = function(runtime, signature)
+        if name == "apply_change":
+            addition = "    component_checkpoint(change.at); // Lifecycle already committed by SM; revoke before aggregating process facts.\n"
+            require(body.count(addition) == 1, "P6 lifecycle checkpoint missing/duplicated")
+            body = body.replace(addition, "", 1)
+        require(body == function(baseline("src/runtime/runtime_manager.cpp"), signature),
                 "P5 altered recovery/lifecycle writer: " + name)
     handle = r"void RuntimeManager::handle_event\([^{}]*\)"
-    require(function(runtime, handle).replace("!shutting_down_ && ", "") ==
+    body = function(runtime, handle)
+    addition = ('    if (event.type == EventType::component_ingress_wake) {\n'
+                '        reap_children(); // Known exits and captured lifecycle work precede component identity admission.\n'
+                '        drain_component_ingress(event.component_ingress_batch, Clock::now());\n'
+                '    } else if (event.type == EventType::heartbeat && component_producer(event.service_name)) {\n'
+                '        logger_.log(LogLevel::warning, "runtime_manager", "rejected unbound component producer heartbeat");\n'
+                '    } else if (event.type == EventType::runtime_event) {')
+    require(body.count(addition) == 1, "P6 private wake/heartbeat gate missing/duplicated")
+    body = body.replace(addition, '    if (event.type == EventType::runtime_event) {', 1)
+    require(body.replace("!shutting_down_ && ", "") ==
             function(baseline("src/runtime/runtime_manager.cpp"), handle), "P5 altered resource/recovery event ownership")
     worker = runtime[runtime.index("monitor_thread_ = std::thread"):runtime.index("timer_thread_ = std::thread")]
     require(worker.index("monitor_.check(Clock::now())") < worker.index("resource_schedule_.due(resource_now_())"),
@@ -306,8 +331,8 @@ def main():
         print("FAIL (P5 static): " + str(error), file=sys.stderr)
         return 1
     print(f"PASS (P5 static): {len(files)} C++ files; {scenarios} main-wired tests; {targets} targets/{registrations} CTest entries")
-    print(f"PASS (P5 static): {protected} frozen files; {history} historical documents/logs; old test bodies and six-second/PID/reap retained")
-    print("PASS (P5 static): approved P3 Monitor/P4 main migrations only; all P4 COVERAGE/owner/budget/terminal/DSM/IPC checks retained")
+    print(f"PASS (P5 static): {protected} guarded files (including pinned P6 migrations); {history} historical documents/logs; old test bodies and six-second/PID/reap retained")
+    print("PASS (P5 static): approved P3 Monitor/P4 main plus P6 CHANGE_LIST migrations; all P4 COVERAGE/owner/budget/terminal/DSM/IPC checks retained")
     print("PASS (P5 static): bounded measurement, launch anchors, batch try-lock/revalidation, units, typed policy, native ingress, query, gates and two workers")
     print(f"PASS (P5 static): 36 plan IDs map to {evidence} assertion-bearing functions; 24 acceptance rows present")
     print("LIMIT: source/contract evidence only; assertions, concurrency, live procfs and performance are Not Verified")

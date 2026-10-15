@@ -1,0 +1,2599 @@
+# Role Definition
+
+你现在是：
+
+RK3588 Embedded Device Runtime Management Framework
+
+Phase 6 MCU Link Supervision & Integration Architect
+
+
+你的职责：
+
+基于当前实际项目仓库，完成 Phase6 架构设计冻结。
+
+Phase6不是重新开发UART协议。
+
+Phase6的任务是：
+
+将现有MCU通信能力作为被管理能力接入Runtime Supervisor，使Runtime能够正确识别：
+
+- MCU通信是否可用
+- MCU是否失联
+- MCU是否重新连接
+- MCU是否重启
+- Linux通信进程是否正常
+- MCU Link故障如何影响Device State
+- 哪些问题应该由通信模块本地恢复
+- 哪些问题应该交给Runtime Recovery
+
+
+设计完成后生成：
+
+- docs/P6
+- AGENTS.md
+- Codex package
+- Thread plan
+- 每个Codex Thread简短执行提示词
+
+
+当前阶段禁止直接输出C++源码。
+
+
+==================================================
+# Source Repositories
+==================================================
+
+必须先读取实际仓库。(优先使用我已连接的 GitHub，而非网页搜索)
+
+主项目：
+
+https://github.com/ppilll/runtime_management
+
+
+Linux视觉/控制项目：
+
+https://github.com/ppilll/VisionArm
+
+
+STM32项目：
+
+https://github.com/ppilll/VisionArm-MCU
+
+
+如果当前会话提供GitHub Connector：
+
+优先使用已连接GitHub读取仓库。
+
+不要只根据本Prompt猜测。
+
+
+==================================================
+# Required Repository Reading
+==================================================
+
+首先阅读runtime_management：
+
+docs/P0/
+docs/P1/
+docs/P2/
+docs/P3/
+docs/P4/
+docs/P5/
+
+
+重点阅读：
+
+docs/P3/ARCHITECTURE.md
+
+docs/P3/AGGREGATION_RULE.md
+
+docs/P3/EVENT_MODEL.md
+
+docs/P4/ARCHITECTURE.md
+
+docs/P4/RECOVERY_POLICY.md
+
+docs/P4/SERVICE_INTEGRATION.md
+
+docs/P4/DEVICE_STATE_INTEGRATION.md
+
+docs/P4/validation_review.md
+
+docs/P5/ARCHITECTURE.md
+
+docs/P5/DEVICE_STATE_INTEGRATION.md
+
+docs/P5/validation_review.md
+
+
+重点检查当前：
+
+RuntimeManager
+
+ServiceManager
+
+ServiceAggregation
+
+DeviceStateManager
+
+RecoveryManager
+
+IPC Manager
+
+Config Manager
+
+Event model
+
+
+以及现有测试。
+
+
+--------------------------------------------------
+# VisionArm Required Reading
+--------------------------------------------------
+
+搜索并阅读Linux端UART实现。
+
+至少检查类似：
+
+visionram/include/control/uart_link.h
+
+visionram/include/control/uart_protocol.h
+
+visionram/include/control/uart_transport.h
+
+visionram/src/control/uart_link.cpp
+
+相关UART transport/protocol实现
+
+tools/test_apps/uart/
+
+
+确认实际已有：
+
+- SerialPort
+- protocol framing
+- protocol message encoding/decoding
+- UartLink
+- link state
+- reconnect/reopen
+- heartbeat
+- status
+- peer boot id
+- sequence tracking
+- metrics
+- watchdog
+
+
+不要重新实现已经存在的能力。
+
+
+--------------------------------------------------
+# VisionArm-MCU Required Reading
+--------------------------------------------------
+
+至少检查：
+
+portable/mcu_uart/
+
+App/visionarm_uart/
+
+
+重点：
+
+protocol.h
+
+messages.h
+
+protocol_core.h
+
+protocol_transport.h
+
+
+确认协议事实：
+
+HELLO
+
+HELLO_ACK
+
+HEARTBEAT
+
+STATUS
+
+PING
+
+PONG
+
+ACK/NACK
+
+boot_id
+
+wire_sequence
+
+CRC
+
+Link State
+
+
+Phase6禁止复制这些协议定义到Runtime Manager。
+
+
+==================================================
+# Existing Project Architecture
+==================================================
+
+项目定位：
+
+Linux Device Runtime Supervisor
+
+
+Runtime负责：
+
+- Process lifecycle
+- Service health
+- Device state
+- Recovery coordination
+- IPC
+- Resource monitoring
+- MCU communication health supervision
+
+
+Runtime不负责：
+
+- Camera
+- V4L2业务
+- RKNN
+- 控制算法
+- MCU控制协议
+- UART framing
+- CRC
+- HELLO negotiation
+- actuator logic
+
+
+核心原则：
+
+Runtime manages business.
+
+Runtime does not implement business.
+
+
+==================================================
+# Current Phase Status
+==================================================
+
+P0 Architecture Baseline:
+
+DONE
+
+
+P1 Runtime Core:
+
+DONE
+
+
+P2 Service Lifecycle:
+
+DONE
+
+
+P3 Device State:
+
+DONE
+
+
+P4 Recovery Strategy:
+
+DONE
+
+
+P5 Resource Monitoring:
+
+DONE
+
+
+P4已经冻结：
+
+RecoveryManager
+
+= Recovery Policy Owner
+
+
+ServiceManager
+
+= Process Lifecycle Owner
+
+
+DeviceStateManager
+
+= Device State Owner
+
+
+P5已经冻结：
+
+Resource Collector
+
+= Measurement Owner
+
+
+Monitor
+
+= Resource Policy Owner
+
+
+这些ownership不得被P6破坏。
+
+
+==================================================
+# Critical Phase6 Boundary
+==================================================
+
+必须首先理解：
+
+Linux通信进程健康
+
+和
+
+MCU Link健康
+
+不是一回事。
+
+
+示例：
+
+mcu_service进程：
+
+RUNNING
+
+
+但串口线断开：
+
+MCU LINK_LOST
+
+
+Runtime必须能够表达：
+
+Process = Healthy
+
+MCU Link = Unhealthy
+
+
+禁止通过：
+
+“停止给Runtime发送service heartbeat”
+
+来模拟：
+
+“MCU失联”
+
+
+否则Runtime会错误认为：
+
+Service process hang/crash
+
+
+并可能启动RecoveryManager重启一个正常进程。
+
+
+==================================================
+# Phase6 Goal
+==================================================
+
+建立：
+
+MCU Link Health Supervision
+
+
+核心路径：
+
+Existing UART Owner
+
+↓
+
+MCU Link Snapshot
+
+↓
+
+Normalized Health Fact
+
+↓
+
+Runtime IPC / Event
+
+↓
+
+ServiceAggregation
+
+↓
+
+DeviceState
+
+
+需要支持：
+
+- initial unknown
+- connecting
+- ready
+- degraded
+- link lost
+- recovered
+- peer MCU reboot
+
+
+但是：
+
+不要直接把VisionArm所有内部LinkState复制到Runtime状态机。
+
+
+Runtime应只看到管理所需的最小语义。
+
+
+==================================================
+# Required Design 1
+# Communication Ownership
+==================================================
+
+这是P6最重要的设计决策。
+
+
+分析：
+
+
+方案A：
+
+独立mcu_service进程。
+
+
+mcu_service：
+
+复用现有VisionArm UART module。
+
+负责：
+
+SerialPort
+
+UART
+
+RS485 transport
+
+HELLO
+
+heartbeat
+
+protocol parsing
+
+link reconnect
+
+MCU protocol health
+
+
+Runtime：
+
+只管理mcu_service和接收health。
+
+
+--------------------------------
+
+
+方案B：
+
+UART继续存在于control_service / VisionArm。
+
+
+control_service：
+
+继续持有UartLink。
+
+
+它向Runtime发布MCU Link Health。
+
+
+--------------------------------
+
+
+必须检查实际仓库后比较。
+
+
+评估：
+
+开发速度
+
+架构一致性
+
+代码重复风险
+
+VisionArm改动量
+
+Runtime边界
+
+故障隔离
+
+部署复杂度
+
+维护成本
+
+测试难度
+
+
+最终必须推荐一个。
+
+
+禁止：
+
+方案C：
+
+RuntimeManager直接创建UartLink。
+
+
+除非你能证明它不破坏Supervisor边界。
+
+默认认为此方案违反架构。
+
+
+==================================================
+# Required Design 2
+# Do Not Duplicate UART Protocol
+==================================================
+
+明确列出Phase6不得重新实现：
+
+Frame flag
+
+escape
+
+CRC
+
+HELLO
+
+HELLO_ACK
+
+HEARTBEAT wire message
+
+STATUS decoder
+
+PING/PONG
+
+ACK/NACK
+
+sequence tracking
+
+peer boot tracking
+
+reliable transaction
+
+UART reopen
+
+
+这些已有能力必须：
+
+reuse
+
+adapter
+
+or remain in existing service。
+
+
+Runtime只能消费normalized information。
+
+
+==================================================
+# Required Design 3
+# Process Health vs Link Health
+==================================================
+
+必须设计两层健康模型。
+
+
+Layer 1：
+
+Service Process Health
+
+
+由现有Runtime管理：
+
+RUNNING
+
+FAILED
+
+heartbeat timeout
+
+PID
+
+generation
+
+
+Layer 2：
+
+MCU Link Health
+
+
+由UART owner产生。
+
+
+至少分析：
+
+UNKNOWN
+
+CONNECTING
+
+HEALTHY
+
+DEGRADED
+
+UNHEALTHY
+
+
+是否足够。
+
+
+不要建立第二套巨大状态机。
+
+
+必须定义：
+
+Process healthy + Link unhealthy
+
+Process unhealthy + Link unknown
+
+Process healthy + MCU rebooting
+
+等组合。
+
+
+==================================================
+# Required Design 4
+# Normalized MCU Health Contract
+==================================================
+
+设计Runtime真正需要接收的最小事实。
+
+
+不要把UartModuleSnapshot完整复制进Runtime。
+
+
+分析最小字段：
+
+
+health/status
+
+reason
+
+timestamp
+
+
+可能需要：
+
+peer_boot_id
+
+link_generation
+
+
+可能需要：
+
+last_rx_age
+
+
+但只有存在Runtime管理价值时才保留。
+
+
+禁止把几十个UART metrics全部变成Runtime event。
+
+
+Metrics应该留在UART owner。
+
+
+==================================================
+# Required Design 5
+# MCU Reboot Detection
+==================================================
+
+现有协议拥有：
+
+sender_boot_id / peer_boot_id。
+
+
+必须分析：
+
+MCU reboot
+
+与
+
+UART temporary disconnect
+
+
+应如何区分。
+
+
+MCU reboot不等于：
+
+Linux service crash。
+
+
+必须定义：
+
+peer boot id change
+
+
+是否形成Runtime health event。
+
+
+建议考虑：
+
+MCU_RESTARTED
+
+是否真的需要独立event，
+
+还是：
+
+Link degraded -> reconnect -> healthy
+
++ reason
+
+
+即可。
+
+
+避免event enum膨胀。
+
+
+==================================================
+# Required Design 6
+# Link Loss Semantics
+==================================================
+
+必须定义：
+
+什么叫MCU失联。
+
+
+不要在Runtime重新计算UART heartbeat timeout。
+
+
+UART owner已经具有：
+
+link watchdog
+
+heartbeat
+
+protocol receive information。
+
+
+Runtime应优先消费：
+
+UART owner最终判断的link health。
+
+
+禁止出现：
+
+UartLink判断一次timeout
+
+Runtime又基于相同wire heartbeat计算第二套timeout。
+
+
+否则形成：
+
+dual link-health owner。
+
+
+==================================================
+# Required Design 7
+# Local Recovery vs Runtime Recovery
+==================================================
+
+这是P6另一个核心问题。
+
+
+Existing UART owner：
+
+已经具备：
+
+open retry
+
+link recovery
+
+reopen
+
+protocol negotiation。
+
+
+这些属于：
+
+Local Communication Recovery。
+
+
+Runtime RecoveryManager：
+
+负责Service Process Recovery。
+
+
+必须冻结边界。
+
+
+例如：
+
+
+UART link lost
+
+↓
+
+UartLink reopen/re-negotiate
+
+
+而不是默认：
+
+↓
+
+RecoveryManager restart service
+
+
+只有当：
+
+communication service本身进入不可恢复failure
+
+或者进程异常
+
+
+才应该由Runtime process recovery介入。
+
+
+必须防止：
+
+serial disconnected
+
+↓
+
+restart service
+
+↓
+
+serial still disconnected
+
+↓
+
+restart service
+
+↓
+
+restart storm
+
+
+==================================================
+# Required Design 8
+# Runtime Health Event
+==================================================
+
+检查当前RuntimeEvent模型。
+
+
+需要决定如何表达：
+
+External Component Health / MCU Link Health。
+
+
+比较：
+
+
+方案A：
+
+新增MCU专用event：
+
+MCU_LINK_UP
+
+MCU_LINK_DOWN
+
+
+优点：
+
+简单。
+
+
+缺点：
+
+Runtime出现硬编码MCU语义。
+
+
+--------------------------------
+
+
+方案B：
+
+新增最小generic component/service health fact。
+
+
+例如：
+
+component
+
+health
+
+severity
+
+reason
+
+generation
+
+
+优点：
+
+Runtime保持Supervisor通用性。
+
+
+缺点：
+
+增加一个抽象。
+
+
+--------------------------------
+
+
+方案C：
+
+复用现有service heartbeat。
+
+
+默认认为语义错误，
+
+但必须说明原因。
+
+
+选择：
+
+最简单且架构正确的方案。
+
+
+禁止设计完整generic telemetry framework。
+
+
+==================================================
+# Required Design 9
+# ServiceAggregation Integration
+==================================================
+
+目前Aggregation已经处理：
+
+Service lifecycle
+
+Resource health
+
+Recovery facts。
+
+
+P6需要分析：
+
+MCU Link Health如何进入Aggregation。
+
+
+必须满足：
+
+Link HEALTHY
+
+不会覆盖其它service/resource fault。
+
+
+Link clear
+
+必须重新evaluate全部health。
+
+
+如果MCU Link为critical：
+
+Link Lost
+
+可能导致：
+
+ERROR。
+
+
+恢复：
+
+不能直接set RUNNING。
+
+必须：
+
+重新聚合。
+
+
+==================================================
+# Required Design 10
+# Criticality / Required Policy
+==================================================
+
+必须明确：
+
+MCU是否是：
+
+required component
+
+critical component。
+
+
+这取决于产品语义。
+
+
+分析：
+
+
+方案A：
+
+MCU required + HIGH criticality
+
+
+适用于：
+
+机器人设备没有MCU就不能正常运行。
+
+
+方案B：
+
+MCU optional / lower criticality
+
+
+适用于：
+
+某些纯视觉部署。
+
+
+不要仅根据名字猜。
+
+
+如果Runtime已有：
+
+ServiceHealthPolicy
+
+criticality
+
+required
+
+
+优先考虑复用。
+
+
+不要建立第二套MCU criticality配置。
+
+
+==================================================
+# Required Design 11
+# Startup Readiness
+==================================================
+
+如果MCU是required：
+
+Runtime什么时候可以从：
+
+READY
+
+进入：
+
+RUNNING？
+
+
+比较：
+
+
+mcu_service process启动成功
+
+
+vs
+
+
+MCU link真正READY。
+
+
+必须决定：
+
+required MCU link是否参与device readiness。
+
+
+这个问题和：
+
+process health
+
+必须分离。
+
+
+例如：
+
+process已启动
+
+但MCU尚在NEGOTIATING
+
+
+设备是否可以RUNNING？
+
+
+必须冻结。
+
+
+==================================================
+# Required Design 12
+# IPC Contract
+==================================================
+
+检查runtime_management现有Unix Domain Socket协议。
+
+
+决定：
+
+现有Service→Runtime通信是否足够承载MCU Health Fact。
+
+
+不要默认增加新IPC type。
+
+
+比较：
+
+复用已有EVENT机制
+
+vs
+
+新增HEALTH_REPORT command/event
+
+
+如果增加wire contract：
+
+必须定义：
+
+方向
+
+payload
+
+validation
+
+request_id语义
+
+错误处理
+
+backpressure
+
+disconnect行为
+
+compatibility
+
+
+禁止：
+
+直接把VisionArm UART raw STATUS结构发送给Runtime。
+
+
+Runtime只接收normalized health。
+
+
+==================================================
+# Required Design 13
+# Producer Identity
+==================================================
+
+Runtime必须防止：
+
+任意service
+
+伪造：
+
+MCU healthy。
+
+
+必须考虑：
+
+health fact来自哪个managed service。
+
+
+至少关联：
+
+service_name
+
+service generation
+
+
+必要时：
+
+producer instance generation。
+
+
+如果：
+
+旧mcu_service进程发送迟到health
+
+不能覆盖新实例状态。
+
+
+P4已经解决stale recovery result。
+
+P6应采用类似原则处理：
+
+stale component health。
+
+
+不要使用timestamp作为唯一身份验证。
+
+
+==================================================
+# Required Design 14
+# Disconnect Semantics
+==================================================
+
+必须分别设计：
+
+
+Case A:
+
+MCU cable disconnected
+
+
+Case B:
+
+MCU power off
+
+
+Case C:
+
+MCU reboot
+
+
+Case D:
+
+Linux UART device open failed
+
+
+Case E:
+
+mcu_service crash
+
+
+Case F:
+
+protocol negotiation failed
+
+
+Case G:
+
+temporary corruption / CRC errors
+
+
+Case H:
+
+Runtime IPC disconnected
+
+
+明确：
+
+谁检测
+
+谁恢复
+
+Runtime看到什么状态
+
+是否触发process recovery。
+
+
+==================================================
+# Required Design 15
+# UART / RS485 Configuration Ownership
+==================================================
+
+Linux serial configuration例如：
+
+device path
+
+baud rate
+
+termios
+
+RS485 direction/config
+
+
+应由UART owner管理。
+
+
+Runtime不要直接：
+
+open /dev/tty*
+
+tcsetattr
+
+TIOCSRS485
+
+
+如果Runtime负责launch独立mcu_service：
+
+可以通过：
+
+service arguments
+
+或
+
+service自己的config
+
+
+提供UART配置。
+
+
+不要把大量UART字段塞进Runtime核心ServiceConfig。
+
+
+必须分析最小配置边界。
+
+
+==================================================
+# Required Design 16
+# Existing VisionArm Code Reuse
+==================================================
+
+如果选择独立mcu_service：
+
+必须分析如何复用现有：
+
+visionarm::uart::UartLink。
+
+
+方案例如：
+
+A：
+
+抽取UART module为可复用library
+
+
+B：
+
+mcu_service链接VisionArm已有library target
+
+
+C：
+
+复制UART源码
+
+
+禁止推荐C。
+
+
+必须分析跨repo依赖和构建成本。
+
+
+如果抽库会造成过大重构：
+
+可以选择继续由control_service拥有UART。
+
+
+禁止为了Phase6“架构漂亮”搬迁大量成熟代码。
+
+
+==================================================
+# Required Design 17
+# Metrics Boundary
+==================================================
+
+现有UartLink已经拥有大量：
+
+UartMetrics。
+
+
+例如：
+
+open attempts
+
+read/write errors
+
+frames
+
+CRC errors
+
+link losses
+
+link recoveries
+
+heartbeats
+
+status
+
+peer boot changes
+
+
+Phase6不得全部复制到Runtime。
+
+
+必须选择：
+
+
+Runtime Health Contract
+
+只保留health所需信息。
+
+
+详细metrics仍由communication owner保留。
+
+
+未来如果需要diagnostic query：
+
+单独设计。
+
+
+==================================================
+# Required Design 18
+# Device State Mapping
+==================================================
+
+设计MCU health到Device State的映射。
+
+
+至少分析：
+
+
+UNKNOWN
+
+CONNECTING
+
+HEALTHY
+
+DEGRADED
+
+UNHEALTHY
+
+
+以及：
+
+required/optional。
+
+
+例如：
+
+required MCU UNKNOWN during boot：
+
+是否保持READY/BOOTING？
+
+
+required MCU UNHEALTHY：
+
+ERROR？
+
+
+optional MCU UNHEALTHY：
+
+WARNING？
+
+
+MCU recovered：
+
+重新聚合。
+
+
+不要增加：
+
+MCU_ERROR
+
+MCU_READY
+
+
+这样的DeviceState。
+
+
+保持现有：
+
+BOOTING
+READY
+RUNNING
+WARNING
+ERROR
+RECOVERING
+OFFLINE
+
+
+==================================================
+# Required Design 19
+# OFFLINE Semantics
+==================================================
+
+不要轻易把：
+
+MCU Link Lost
+
+
+映射成：
+
+Device OFFLINE。
+
+
+现有OFFLINE与P4 terminal recovery有明确语义。
+
+
+必须分析：
+
+MCU物理掉线
+
+通常应是：
+
+ERROR
+
+
+还是：
+
+OFFLINE。
+
+
+除非有明确产品定义，
+
+不要破坏既有OFFLINE终结语义。
+
+
+==================================================
+# Required Design 20
+# Host Linux Test Strategy
+==================================================
+
+设计不需要真实STM32的Host Linux测试。
+
+
+优先分析：
+
+PTY / pseudo-terminal pair
+
+
+模拟：
+
+serial byte stream。
+
+
+可以测试：
+
+connect
+
+disconnect
+
+reconnect
+
+protocol traffic
+
+link timeout
+
+MCU reboot simulation
+
+
+但必须明确：
+
+PTY只能验证：
+
+userspace stream / protocol / lifecycle
+
+
+不能证明：
+
+RK3588 UART driver
+
+RS485 DE timing
+
+device tree
+
+pinmux
+
+electrical layer。
+
+
+不要把PTY测试称为RK3588硬件测试。
+
+
+==================================================
+# Required Design 21
+# Fake MCU / Simulator
+==================================================
+
+分析是否需要最小Fake MCU测试工具。
+
+
+注意：
+
+不要在runtime_management重新实现完整MCU firmware。
+
+
+Fake MCU只服务测试。
+
+
+优先：
+
+复用现有VisionArm UART protocol library
+
+或者固定test fixtures。
+
+
+测试需要：
+
+HELLO
+
+heartbeat/status
+
+disconnect
+
+reboot boot_id change
+
+
+即可。
+
+
+不要实现：
+
+gimbal
+
+control algorithm
+
+actuator。
+
+
+==================================================
+# Required Design 22
+# RK3588 Hardware Validation
+==================================================
+
+定义后续真实板端验证。
+
+
+至少包括：
+
+UART device存在
+
+open/configure成功
+
+MCU connected
+
+MCU power cycle
+
+cable disconnect/reconnect
+
+Runtime持续运行
+
+mcu communication owner持续运行
+
+device state变化正确
+
+
+如果实际使用RS485：
+
+还需要验证：
+
+driver RS485 support
+
+direction control
+
+实际收发。
+
+
+不能通过Host PTY推断这些结果。
+
+
+==================================================
+# Required Design 23
+# Fault Injection
+==================================================
+
+测试必须能够注入：
+
+
+service process crash
+
+UART open error
+
+link loss
+
+no incoming heartbeat/status
+
+corrupted frames
+
+MCU reboot
+
+stale producer event
+
+IPC disconnect
+
+
+每种情况必须区分：
+
+process failure
+
+link failure。
+
+
+==================================================
+# Required Design 24
+# Concurrency
+==================================================
+
+分析：
+
+UartLink I/O thread
+
+service IPC thread/event loop
+
+Runtime writer
+
+
+之间的数据流。
+
+
+Runtime必须继续保持：
+
+single writer decision。
+
+
+不要让外部UART callback：
+
+直接修改DeviceStateManager。
+
+
+正确形式：
+
+UART thread
+
+↓
+
+snapshot/event
+
+↓
+
+service IPC
+
+↓
+
+Runtime EventQueue
+
+↓
+
+Runtime writer
+
+
+==================================================
+# Required Design 25
+# Shutdown
+==================================================
+
+必须定义：
+
+Runtime shutdown
+
+service shutdown
+
+UART link shutdown
+
+
+的顺序。
+
+
+不能：
+
+Runtime已开始退出
+
+但旧MCU health事件继续改变DeviceState。
+
+
+必须防止：
+
+late event after service generation change。
+
+
+==================================================
+# Required Design 26
+# Configuration
+==================================================
+
+不要默认增加大量MCU config到runtime_management。
+
+
+必须区分：
+
+Supervisor config：
+
+- service executable
+- dependency
+- criticality / required
+
+
+Communication config：
+
+- device path
+- baud
+- heartbeat
+- protocol timeout
+- UART-specific options
+
+
+后者属于：
+
+mcu_service / control_service。
+
+
+如果VisionArm已经有配置机制：
+
+优先复用。
+
+
+==================================================
+# Required Design 27
+# Scope Exclusions
+==================================================
+
+Phase6禁止实现：
+
+Camera
+
+V4L2
+
+RKNN
+
+image pipeline
+
+gimbal control algorithm
+
+motor control
+
+actuator logic
+
+new MCU firmware behavior
+
+new UART protocol
+
+cloud
+
+MQTT
+
+database
+
+Web UI
+
+OTA
+
+GPU/NPU monitoring
+
+generic hardware abstraction framework
+
+
+==================================================
+# Architecture Decision Rules
+==================================================
+
+每个重要问题必须输出：
+
+
+方案A
+
+优点
+
+缺点
+
+
+方案B
+
+优点
+
+缺点
+
+
+最终推荐
+
+理由
+
+
+考虑：
+
+开发速度
+
+稳定性
+
+维护成本
+
+进程隔离
+
+跨repo成本
+
+RK3588适配
+
+测试能力
+
+故障恢复
+
+面试展示价值
+
+
+==================================================
+# Required Testing Matrix
+==================================================
+
+至少设计以下测试：
+
+
+Test 1
+
+communication owner启动
+
+MCU link UNKNOWN/CONNECTING。
+
+
+Test 2
+
+MCU READY
+
+→ normalized HEALTHY。
+
+
+Test 3
+
+MCU cable disconnect
+
+process仍RUNNING
+
+link UNHEALTHY。
+
+
+Test 4
+
+link loss不能被误判为process crash。
+
+
+Test 5
+
+link loss不会默认触发restart storm。
+
+
+Test 6
+
+UART owner本地reconnect成功
+
+→ HEALTHY。
+
+
+Test 7
+
+MCU power cycle / boot_id change。
+
+
+Test 8
+
+mcu_service真实process crash
+
+→ 现有RecoveryManager处理。
+
+
+Test 9
+
+old service generation迟到MCU healthy event
+
+→ reject。
+
+
+Test 10
+
+IPC disconnect后stale fact不能覆盖新实例。
+
+
+Test 11
+
+required MCU unhealthy
+
+→ 正确Device State。
+
+
+Test 12
+
+optional MCU unhealthy
+
+→ 正确Device State。
+
+
+Test 13
+
+MCU recovery时仍存在其它critical fault
+
+→ Device不得错误RUNNING。
+
+
+Test 14
+
+MCU link HEALTHY不能清除resource warning。
+
+
+Test 15
+
+protocol corruption / CRC burst
+
+不应由Runtime自己解析。
+
+
+Test 16
+
+PTY disconnect/reconnect。
+
+
+Test 17
+
+shutdown期间link event。
+
+
+Test 18
+
+producer异常退出。
+
+
+Test 19
+
+Runtime restart后的fresh generation。
+
+
+Test 20
+
+如果使用独立mcu_service：
+
+依赖启动顺序。
+
+
+Test 21
+
+如果使用control_service ownership：
+
+control_service与MCU link health解耦验证。
+
+
+Test 22
+
+真实RK3588 + STM32连接测试计划。
+
+
+==================================================
+# Verification Status
+==================================================
+
+继续沿用项目现有规则。
+
+
+必须分别报告：
+
+Implemented
+
+Statically Verified
+
+Host Linux Runtime Verified
+
+RK3588 + MCU Hardware Verified
+
+Not Verified
+
+
+禁止：
+
+存在测试源码
+
+=
+
+测试PASS
+
+
+禁止：
+
+PTY PASS
+
+=
+
+RK3588 UART PASS
+
+
+禁止：
+
+Linux UART open成功
+
+=
+
+RS485 electrical validation PASS。
+
+
+==================================================
+# Required Phase Definition
+==================================================
+
+必须输出：
+
+
+Phase ID:
+
+P6
+
+
+Phase Name:
+
+MCU Link Supervision & Integration
+
+
+Goal:
+
+
+Why:
+
+
+Input:
+
+
+Output:
+
+
+Modified Modules:
+
+
+Interface Changes:
+
+
+Implementation Tasks:
+
+
+Testing:
+
+
+Acceptance Criteria:
+
+
+Risk:
+
+
+Next Phase Dependency:
+
+
+==================================================
+# docs/P6
+==================================================
+
+设计完成后生成建议的：
+
+docs/P6/
+
+
+至少考虑：
+
+README.md
+
+ARCHITECTURE.md
+
+OWNERSHIP.md
+
+MCU_HEALTH_MODEL.md
+
+SERVICE_INTEGRATION.md
+
+RUNTIME_EVENT_INTEGRATION.md
+
+DEVICE_STATE_INTEGRATION.md
+
+RECOVERY_BOUNDARY.md
+
+IPC_CONTRACT.md
+
+CONFIGURATION.md
+
+TEST_PLAN.md
+
+HARDWARE_VALIDATION.md
+
+RISK_ANALYSIS.md
+
+AGENTS.md
+
+
+允许合理合并。
+
+
+不要制造空文档。
+
+
+==================================================
+# AGENTS.md
+==================================================
+
+只包含：
+
+- Phase6特殊规则
+- 不可推断约束
+- 编译方式
+- repo/目录规则
+- 跨repo修改边界
+- 禁止事项
+
+
+尤其必须写明：
+
+不得复制VisionArm UART protocol到Runtime。
+
+
+不要包含：
+
+项目历史
+
+长篇背景
+
+普通C++编码规范。
+
+
+==================================================
+# Codex Package
+==================================================
+
+设计完成后生成：
+docs/P6/codex_package/
+把codex的各对话的提示词分别给我(不可能用同一个提示词在所有的对话下工作)。让各对话在/docs下找对应内容进行工作。以及各对话是否能够并行或者有先后执行顺序
+codex各对话调用几docs/P5的设计文档，了解任务，自己该干什么，任务边界是什么
+
+
+每个对话的提示词应该是简短的(参考docs\P4\codex_package的提示词生成)。
+
+
+并生成：
+
+每个Thread一个简短、可以直接复制给Codex的执行提示词。
+
+
+==================================================
+# Suggested Thread Split
+==================================================
+
+必须根据最终A/B ownership决定后调整。
+
+
+默认建议：
+
+
+Thread 1
+
+MCU Health Contract & Runtime Model
+
+
+负责：
+
+normalized MCU health model
+
+event contract
+
+generation validation
+
+aggregation integration
+
+
+禁止：
+
+实现UART协议。
+
+
+--------------------------------
+
+
+Thread 2
+
+Communication Owner Adapter
+
+
+如果采用mcu_service：
+
+实现mcu_service和existing UartLink之间最小adapter。
+
+
+如果采用control_service：
+
+实现现有UART owner到Runtime health contract的adapter。
+
+
+要求：
+
+复用Existing UART implementation。
+
+
+禁止：
+
+复制协议代码。
+
+
+--------------------------------
+
+
+Thread 3
+
+IPC / Device State / Recovery Integration
+
+
+负责：
+
+health transport
+
+required/critical policy
+
+Device State mapping
+
+Recovery boundary
+
+config integration
+
+
+重点：
+
+process vs link health隔离。
+
+
+--------------------------------
+
+
+Thread 4
+
+Tests / Review / Limited Fix
+
+
+负责：
+
+PTY tests
+
+fake MCU fixture
+
+generation/race tests
+
+disconnect/reconnect
+
+device state tests
+
+regression
+
+static validation
+
+architecture review
+
+
+禁止：
+
+借Review重构VisionArm业务。
+
+
+==================================================
+# Cross-Repository Rule
+==================================================
+
+如果Phase6需要修改：
+
+runtime_management
+
+和
+
+VisionArm
+
+
+必须明确：
+
+每个repo修改哪些文件。
+
+
+尽量避免修改VisionArm-MCU firmware。
+
+
+除非发现明确协议缺陷，
+
+否则Phase6不得改变：
+
+wire protocol。
+
+
+如果必须修改协议：
+
+视为新的架构决策，
+
+必须停止Phase6实现并列为Blocking Issue。
+
+
+==================================================
+# Phase6 Acceptance Criteria
+==================================================
+
+Phase6设计/实现最终至少满足：
+
+
+1.
+
+Runtime不实现UART protocol。
+
+
+2.
+
+Runtime不直接拥有SerialPort。
+
+
+3.
+
+Existing UART implementation被复用。
+
+
+4.
+
+Process health与MCU link health分离。
+
+
+5.
+
+存在明确normalized MCU health contract。
+
+
+6.
+
+MCU link lost可被Runtime观察。
+
+
+7.
+
+MCU link recovery可被Runtime观察。
+
+
+8.
+
+MCU reboot可被正确识别或合理降级处理。
+
+
+9.
+
+stale producer event不能覆盖新service instance。
+
+
+10.
+
+Link loss不能自动形成无界service restart。
+
+
+11.
+
+UART local recovery与Runtime process recovery owner清晰。
+
+
+12.
+
+ServiceAggregation正确纳入MCU health。
+
+
+13.
+
+MCU health clear会重新聚合全部facts。
+
+
+14.
+
+MCU恢复不会清除其它service/resource failure。
+
+
+15.
+
+不新增MCU专用DeviceState。
+
+
+16.
+
+OFFLINE语义不被随意破坏。
+
+
+17.
+
+required/critical策略明确。
+
+
+18.
+
+startup readiness规则明确。
+
+
+19.
+
+IPC contract有明确方向和validation。
+
+
+20.
+
+不复制完整UartMetrics到Runtime。
+
+
+21.
+
+Host PTY测试与硬件测试边界明确。
+
+
+22.
+
+没有新UART协议。
+
+
+23.
+
+没有修改MCU业务控制。
+
+
+24.
+
+没有破坏P1-P5 ownership。
+
+
+25.
+
+没有出现第二套Recovery Policy Owner。
+
+
+26.
+
+没有出现第二套Link Recovery Owner。
+
+
+27.
+
+文档、代码任务和测试矩阵一致。
+
+
+28.
+
+验证结果明确区分Host和RK3588硬件。
+
+
+==================================================
+# Final Output
+==================================================
+
+最终输出：
+
+1. Current Repository Assessment
+
+2. Existing MCU Communication Capability Assessment
+
+3. Phase6 Objective
+
+4. Communication Ownership Decision
+
+5. Process Health vs MCU Link Health Model
+
+6. Normalized MCU Health Contract
+
+7. Link State Mapping
+
+8. MCU Reboot Handling
+
+9. Runtime Event Design
+
+10. ServiceAggregation Integration
+
+11. Device State Integration
+
+12. Recovery Boundary
+
+13. Startup Readiness Decision
+
+14. IPC Contract
+
+15. Configuration Ownership
+
+16. Cross-Repository Change Plan
+
+17. Module Change List
+
+18. Interface Change List
+
+19. Host Linux Test Strategy
+
+20. RK3588 Hardware Validation Plan
+
+21. Testing Matrix
+
+22. Risk Analysis
+
+23. Phase6 Acceptance Criteria
+
+24. docs/P6完整内容
+
+26. codex_package完整内容
+
+最后单独输出：
+
+PHASE6 DESIGN FREEZE CANDIDATE
+
+
+必须包含：
+
+Frozen Decisions
+
+Unresolved Decisions
+
+Blocking Issues
+
+Deferred Issues
+
+
+Blocking Issues为空后，
+
+才允许建议开始Codex实现。
+
+
+禁止直接生成C++源码。

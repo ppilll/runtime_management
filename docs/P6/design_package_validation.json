@@ -1,0 +1,130 @@
+{
+  "date": "2026-10-03",
+  "scope": "document package only; no repository code execution",
+  "checks": [
+    {
+      "check": "required_nonempty_documents",
+      "status": "PASS",
+      "details": "31 docs/P6 Markdown files"
+    },
+    {
+      "check": "root_agents_matches",
+      "status": "PASS",
+      "details": ""
+    },
+    {
+      "check": "no_source_deliverables",
+      "status": "PASS",
+      "details": "No .cpp/.c/.hpp/.h or implementation scripts in overlay"
+    },
+    {
+      "check": "no_cpp_code_fences",
+      "status": "PASS",
+      "details": ""
+    },
+    {
+      "check": "no_merge_markers",
+      "status": "PASS",
+      "details": ""
+    },
+    {
+      "check": "local_markdown_links",
+      "status": "PASS",
+      "details": {
+        "links": 136,
+        "broken": []
+      }
+    },
+    {
+      "check": "json_examples_parse",
+      "status": "PASS",
+      "details": {
+        "fences": 10,
+        "errors": []
+      }
+    },
+    {
+      "check": "38_scenarios_unique",
+      "status": "PASS",
+      "details": ""
+    },
+    {
+      "check": "28_acceptance_rows",
+      "status": "PASS",
+      "details": ""
+    },
+    {
+      "check": "27_required_design_rows",
+      "status": "PASS",
+      "details": ""
+    },
+    {
+      "check": "10_hardware_steps",
+      "status": "PASS",
+      "details": ""
+    },
+    {
+      "check": "four_tasks_eight_sections_and_P4_P5",
+      "status": "PASS",
+      "details": [
+        true,
+        true,
+        true,
+        true
+      ]
+    },
+    {
+      "check": "four_distinct_short_prompts",
+      "status": "PASS",
+      "details": [
+        227,
+        227,
+        230,
+        215
+      ]
+    },
+    {
+      "check": "final_output_numbering",
+      "status": "PASS",
+      "details": ""
+    },
+    {
+      "check": "all_full_documents_embedded",
+      "status": "PASS",
+      "details": ""
+    },
+    {
+      "check": "freeze_four_categories",
+      "status": "PASS",
+      "details": ""
+    },
+    {
+      "check": "203_pinned_source_records",
+      "status": "PASS",
+      "details": ""
+    },
+    {
+      "check": "95_P0_P5_document_records",
+      "status": "PASS",
+      "details": "95"
+    },
+    {
+      "check": "verification_boundary_explicit",
+      "status": "PASS",
+      "details": ""
+    },
+    {
+      "check": "preserved_regression_contract",
+      "status": "PASS",
+      "details": ""
+    },
+    {
+      "check": "zip_integrity_and_content_match",
+      "status": "PASS",
+      "details": ""
+    }
+  ],
+  "runtime_build": "Not Verified",
+  "host_linux_runtime": "Not Verified",
+  "rk3588_mcu_hardware": "Not Verified"
+}

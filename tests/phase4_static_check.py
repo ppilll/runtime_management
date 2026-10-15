@@ -102,8 +102,9 @@ def baseline(name):
 
 
 def check_freeze():
+    from phase6_static_check import check_approved_freeze
     for name in PROTECTED:
-        require(read(name) == baseline(name), "frozen interface/backend changed: " + name)
+        check_approved_freeze(name, baseline(name))
     check_native_startup()
     pattern = r"void test_runtime_shutdown_respects_long_grace_period\(\).*?(?=\nvoid |\n\} // namespace)"
     old = re.search(pattern, baseline("tests/phase2_integration_tests.cpp"), re.S)
@@ -127,6 +128,11 @@ def check_native_startup():
     # P5 CHANGE_LIST opens only main's single config/native wiring. Restore those
     # three approved edits and retain the byte oracle for CLI/socket/sink lifetime.
     source = read("src/ipc/main.cpp")
+    # P6 opens only these two constructor arguments; retain P5/P4 inverse oracle.
+    extension = (",\n            std::make_shared<runtime::ComponentTransportAdapter>(core),"
+                 "\n            [&] { return core.queryComponentHealth(); }")
+    require(source.count(extension) == 1, "P6 main adapter/query wiring missing or duplicated")
+    source = source.replace(extension, "")
     load = "        const auto config = runtime::ConfigManager::load_runtime_file(argv[1]);\n"
     require(source.count(load) == 1 and source.count("ConfigManager::load_") == 1,
             "main must load one complete config")
@@ -251,7 +257,7 @@ def main():
         print("FAIL (static): " + str(error), file=sys.stderr)
         return 1
     print(f"PASS (static): {len(files)} C++ files, {scenarios} main-wired tests, {targets} targets/{registrations} CTest entries")
-    print(f"PASS (static): {len(PROTECTED)} frozen files, original six-second/PID/reap regression and old registrations")
+    print(f"PASS (static): {len(PROTECTED)} guarded files (including pinned P6 migrations), original six-second/PID/reap regression and old registrations")
     print("PASS (static): single policy owner, captured bridge, cancellation/timeout/ingress and IPC contracts")
     print(f"PASS (static): P4-01..32 plus P4-19b map to {evidence} assertion-bearing test functions; 441 target triples retained")
     print("LIMIT: source-only evidence; no C++ compilation, runtime tests, concurrency or ARM64 verification")

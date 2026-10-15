@@ -1,6 +1,8 @@
 #pragma once
 
+#include "runtime/component_health.hpp"
 #include <chrono>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -35,9 +37,15 @@ struct MonitoringConfig {
     double memory_critical_clear = 90;
 };
 
+struct HealthConfig {
+    std::map<std::string, ServiceHealthPolicy> services;
+    std::vector<ComponentPolicyEntry> components;
+};
+
 struct RuntimeConfig {
     std::vector<ServiceConfig> services;
     MonitoringConfig monitoring;
+    HealthConfig health;
 };
 
 class ConfigManager {
@@ -45,6 +53,7 @@ public:
     static std::vector<ServiceConfig> load_file(const std::string& path);
     static RuntimeConfig load_runtime_file(const std::string& path);
     static void validate(const MonitoringConfig& config);
+    static void validate(const HealthConfig& health, const std::vector<ServiceConfig>& services);
     // Shared by JSON, ServiceManager registration and RecoveryManager.
     static void validate(const ServiceConfig& config);
     static std::chrono::seconds recoveryTimeout(const ServiceConfig& config);

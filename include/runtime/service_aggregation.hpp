@@ -2,22 +2,17 @@
 
 #include "runtime/device_state_manager.hpp"
 #include "runtime/event.hpp"
+#include "runtime/health_policy.hpp"
 #include <map>
 #include <string>
 
 namespace runtime {
 
-enum class ServiceCriticality { high, medium, low };
-
-struct ServiceHealthPolicy {
-    ServiceCriticality criticality = ServiceCriticality::low;
-    bool required = false; // Gates initial readiness, separate from failure severity.
-};
-
 struct AggregationOptions {
     bool vision_required = false;
     // Static overrides, supplied when constructing RuntimeManager; no rule engine.
     std::map<std::string, ServiceHealthPolicy> policies;
+    std::vector<ComponentPolicyEntry> components; // Empty preserves legacy readiness.
 };
 
 // All mutations are serialized on the runtime event loop. Queries go through
@@ -26,6 +21,8 @@ class ServiceAggregation {
 public:
     explicit ServiceAggregation(DeviceStateManager& states, AggregationOptions options = {});
     void add_service(const std::string& name, bool autostart = false);
+    void add_component(ComponentPolicyEntry entry);
+    const std::vector<ComponentPolicyEntry>& configured_components() const { return options_.components; }
     bool handle(const RuntimeEvent& event); // False for invalid metadata/type/service.
     void refresh(Clock::time_point at = Clock::now());
     // Writer-only captured binding updates; these do not publish recovery events.
@@ -46,6 +43,13 @@ private:
         std::optional<RecoveryContext> recovery_context;
         std::optional<std::uint64_t> candidate_generation;
     };
+    struct ComponentHealth {
+        ComponentPolicyEntry entry;
+        ComponentHealthFact fact;
+        bool ever_healthy = false;
+        std::optional<ComponentHealthStatus> adverse;
+    };
+    bool handle_component(const RuntimeEvent& event);
     DeviceState evaluate() const;
     void reconcile(const RuntimeEvent& event);
     void transition(DeviceStateEventType type, DeviceState target, const RuntimeEvent& event);
@@ -54,6 +58,7 @@ private:
     const AggregationOptions options_;
     std::map<std::string, Health> services_; // Stable iteration for priority evaluation.
     std::map<std::string, ResourceSeverity> resource_warnings_;
+    std::map<std::string, ComponentHealth> components_;
     bool device_recovering_ = false;
     bool recovery_failed_ = false;
 };

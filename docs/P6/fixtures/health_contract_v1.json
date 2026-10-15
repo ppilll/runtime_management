@@ -1,0 +1,145 @@
+{
+  "contract": "runtime-component-health",
+  "version": 1,
+  "frozen_by": "P6-T1",
+  "baselines": {
+    "runtime_management": "f8507027c87a9ae9899f51da708f8d469552c473",
+    "VisionArm": "05148303c5ec5bba0ee89e707ab340e94e8aa3e1",
+    "VisionArm-MCU": "92d8f45bc9c7df55f6e2abea4b4abfeb090a3e3d"
+  },
+  "transport": {
+    "channel": "service",
+    "message_type": 11,
+    "header_bytes": 10,
+    "legacy_payload_max": 65536,
+    "health_payload_max": 4096,
+    "reason_utf8_bytes_max": 256,
+    "private_operations_max": 32,
+    "pending_per_connection_max": 1,
+    "writer_batch_max": 8,
+    "epoll_health_frames_per_turn_max": 16,
+    "report_interval_ms": 1000,
+    "lease_ms": 3500,
+    "request_id": "nonzero uint32 for bind/report; original type4 format unchanged",
+    "ack_boundary": "writer identity revalidation, fact dispatch, DSM commit and committed cache update",
+    "duplicate_keys": "reject before schema validation",
+    "unknown_keys": "reject in each new object",
+    "event_direction": "type5 remains outbound only",
+    "peer_credentials": "server SO_PEERCRED exact foreground direct-child PID; no JSON PID or generation",
+    "received_at": "server monotonic complete-frame time, never producer timestamp"
+  },
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "oneOf": [
+      {"$ref": "#/$defs/bind_request"},
+      {"$ref": "#/$defs/report_request"}
+    ],
+    "$defs": {
+      "positive_u64": {
+        "type": "string",
+        "pattern": "^[1-9][0-9]{0,19}$",
+        "description": "Also compare exact decimal value <=18446744073709551615; regex alone is insufficient"
+      },
+      "revision_u64": {
+        "type": "string",
+        "pattern": "^(0|[1-9][0-9]{0,19})$",
+        "description": "Same uint64 maximum; zero only UNKNOWN/initial"
+      },
+      "epoch": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+      "bind_request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["version", "op", "service_name"],
+        "properties": {
+          "version": {"const": 1, "type": "integer"},
+          "op": {"const": "bind"},
+          "service_name": {"type": "string", "minLength": 1}
+        }
+      },
+      "report_request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["version", "op", "runtime_epoch", "session_id", "report_seq", "component", "status", "reason_code", "reason", "projection_revision", "link_epoch", "peer_boot_id", "sample_kind"],
+        "properties": {
+          "version": {"const": 1, "type": "integer"},
+          "op": {"const": "report"},
+          "runtime_epoch": {"$ref": "#/$defs/epoch"},
+          "session_id": {"$ref": "#/$defs/positive_u64"},
+          "report_seq": {"$ref": "#/$defs/positive_u64"},
+          "component": {"const": "mcu_link"},
+          "status": {"enum": ["UNKNOWN", "CONNECTING", "HEALTHY", "DEGRADED", "UNHEALTHY"]},
+          "reason_code": {"enum": ["initial", "opening", "negotiating", "ready", "response_timeout", "link_lost", "open_failed", "hello_rejected", "startup_not_ready", "peer_reboot", "recovered", "owner_stopped"]},
+          "reason": {"type": "string", "description": "Valid UTF-8, <=256 encoded bytes"},
+          "projection_revision": {"$ref": "#/$defs/revision_u64"},
+          "link_epoch": {"$ref": "#/$defs/positive_u64"},
+          "peer_boot_id": {"type": ["integer", "null"], "minimum": 0, "maximum": 4294967295},
+          "sample_kind": {"enum": ["current", "issue"]}
+        }
+      }
+    }
+  },
+  "semantic_validation": {
+    "initial": ["UNKNOWN"],
+    "opening": ["CONNECTING", "DEGRADED", "UNHEALTHY"],
+    "negotiating": ["CONNECTING", "DEGRADED", "UNHEALTHY"],
+    "ready": ["HEALTHY"],
+    "response_timeout": ["DEGRADED"],
+    "link_lost": ["UNHEALTHY"],
+    "open_failed": ["UNHEALTHY"],
+    "hello_rejected": ["UNHEALTHY"],
+    "startup_not_ready": ["UNHEALTHY"],
+    "peer_reboot": ["DEGRADED", "UNHEALTHY"],
+    "recovered": ["HEALTHY"],
+    "owner_stopped": ["UNHEALTHY"]
+  },
+  "rules": [
+    "issue is only DEGRADED or UNHEALTHY",
+    "runtime_epoch is generated from OS entropy; failure aborts enabled health construction",
+    "session IDs never reused or wrapped, even across producer launches in one Runtime",
+    "same session same seq identical typed payload: APPLIED again without renewing lease or publishing",
+    "same seq different payload and lower seq: 1002",
+    "higher seq stable current same revision: renew lease without duplicate fact",
+    "owner revision and link epoch lower bounds are launch-scoped, not session-scoped",
+    "same revision different content allowed only issue -> current with equal link epoch and boot evidence",
+    "applied issue identical replay after lost ACK/reconnect: APPLIED without duplicate issue event",
+    "applied current closes same-revision issue exception; old issue cannot roll back current",
+    "Runtime-derived UNKNOWN preserves last owner sample/kind and confirmation lower bound",
+    "now - received_at >=3500ms rejects queued reports; checkpoint equality expires observation",
+    "type4 bound heartbeat does not renew component report lease",
+    "new launch resets component readiness/adverse and owner bounds; old PID/session cannot report",
+    "disconnect atomic revocation works even with a full operation queue",
+    "issue ACK triggers owner AckThrough only through applied revision; new issue survives older ACK",
+    "client re-reads coherent owner projection after each ACK and handles newer pending issue before current",
+    "same boot ID does not prove no reboot; boot ID is not an ordering or authentication key"
+  ],
+  "messages": {
+    "bind_request": {"version": 1, "op": "bind", "service_name": "worker"},
+    "bind_reply": {"version": 1, "op": "bind", "result": "OK", "runtime_epoch": "00112233445566778899aabbccddeeff", "session_id": "1", "service_name": "worker", "instance_generation": "3", "report_interval_ms": 1000, "lease_ms": 3500},
+    "issue_request": {"version": 1, "op": "report", "runtime_epoch": "00112233445566778899aabbccddeeff", "session_id": "1", "report_seq": "1", "component": "mcu_link", "status": "UNHEALTHY", "reason_code": "link_lost", "reason": "owner watchdog declared loss", "projection_revision": "12", "link_epoch": "2", "peer_boot_id": 0, "sample_kind": "issue"},
+    "issue_ack": {"version": 1, "op": "report", "result": "APPLIED", "session_id": "1", "report_seq": "1", "projection_revision": "12"},
+    "current_request": {"version": 1, "op": "report", "runtime_epoch": "00112233445566778899aabbccddeeff", "session_id": "1", "report_seq": "2", "component": "mcu_link", "status": "HEALTHY", "reason_code": "recovered", "reason": "owner ready", "projection_revision": "12", "link_epoch": "2", "peer_boot_id": 0, "sample_kind": "current"},
+    "current_ack": {"version": 1, "op": "report", "result": "APPLIED", "session_id": "1", "report_seq": "2", "projection_revision": "12"},
+    "heartbeat_request": {"service_name": "worker", "timestamp": 0},
+    "opt_in_query": {"include_components": 1},
+    "legacy_query": {}
+  },
+  "sequences": [
+    {"id": "issue_then_current", "steps": ["bind OK", "issue revision12 seq1 APPLIED", "owner AckThrough12", "re-read owner", "current revision12 seq2 APPLIED"], "oracle": "UNHEALTHY observed before HEALTHY; no process recovery"},
+    {"id": "duplicate_ack", "steps": ["issue seq1 APPLIED", "same issue seq1 resend", "APPLIED again"], "oracle": "no lease renewal, no duplicate fact"},
+    {"id": "ack_lost_reconnect", "steps": ["issue12 APPLIED but ACK lost", "disconnect UNKNOWN", "bind new session same launch", "identical issue12 seq1 APPLIED", "AckThrough12", "current12 seq2 APPLIED"], "oracle": "lower bounds retained; repeated issue not republished"},
+    {"id": "current_applied_old_issue", "steps": ["issue12 APPLIED", "current12 APPLIED", "disconnect", "bind same launch", "old issue12 seq1"], "oracle": "1002; current confirmation cannot roll back"},
+    {"id": "unknown_lower_bound", "steps": ["current12 APPLIED", "report lease expired UNKNOWN", "current11 with higher seq"], "oracle": "1002; derived UNKNOWN cannot reset revision"},
+    {"id": "new_issue_during_ack", "steps": ["read issue12/current12", "new issue14", "ACK12", "AckThrough12 leaves issue14", "re-read issue14", "issue14 APPLIED", "cached current13"], "oracle": "current13 rejected; new fault wins before latest14"},
+    {"id": "lease_equality", "steps": ["report at t0", "checkpoint t0+3499ms", "read query t0+3500ms", "checkpoint t0+3500ms"], "oracle": "fresh, query unchanged, UNKNOWN/report_expired"},
+    {"id": "new_launch", "steps": ["launch3 issue19", "SM launch4 same numerical PID", "old launch report", "new bind", "revision1 current"], "oracle": "old report 1004; new launch starts with empty bounds/readiness"},
+    {"id": "shutdown", "steps": ["shutdown gate", "late report", "disconnect/checkpoint"], "oracle": "1003, no component state commit"}
+  ],
+  "numeric_fixtures": {
+    "accepted_positive_u64": ["1", "9223372036854775808", "18446744073709551615"],
+    "rejected_positive_u64": ["0", "01", "+1", "-1", "1.0", "18446744073709551616", ""],
+    "accepted_peer_boot_id": [null, 0, 4294967295],
+    "rejected_peer_boot_id": [-1, 4294967296, true, "0"]
+  },
+  "unit_source": "tests/component_health_tests.cpp",
+  "handoff": "T2 and T3 consume an identical read-only copy of this fixture and docs/P6. No business/protocol sources cross repositories. T3 implements strict JSON parsing, real peer capture, bounded weak replies, type11/4 wiring and opt-in query."
+}

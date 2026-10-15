@@ -59,3 +59,13 @@ add_executable(resource_monitoring_tests resource_monitoring_tests.cpp)
 target_link_libraries(resource_monitoring_tests PRIVATE runtime_core)
 add_test(NAME phase5_resource_monitoring_unit COMMAND resource_monitoring_tests)
 set_tests_properties(phase5_resource_monitoring_unit PROPERTIES TIMEOUT 60)
+
+add_executable(component_health_tests component_health_tests.cpp)
+target_link_libraries(component_health_tests PRIVATE runtime_core)
+add_test(NAME phase6_component_health_unit COMMAND component_health_tests)
+set_tests_properties(phase6_component_health_unit PROPERTIES TIMEOUT 10)
+
+add_executable(component_ipc_tests component_ipc_tests.cpp)
+target_link_libraries(component_ipc_tests PRIVATE phase1_ipc)
+add_test(NAME phase6_component_ipc COMMAND component_ipc_tests)
+set_tests_properties(phase6_component_ipc PROPERTIES TIMEOUT 90)

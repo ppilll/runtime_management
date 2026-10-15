@@ -2,6 +2,7 @@
 
 #include "runtime/device_state.hpp"
 #include "runtime/recovery.hpp"
+#include "runtime/component_health.hpp"
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -19,7 +20,8 @@ using Clock = std::chrono::steady_clock;
 // Internal facts, separate from service commands and IPC messages.
 enum class RuntimeEventType {
     service_started, service_failed, service_stopped, heartbeat_timeout,
-    resource_warning, recovery_start, recovery_success, recovery_failed
+    resource_warning, recovery_start, recovery_success, recovery_failed,
+    component_health_changed
 };
 const char* event_name(RuntimeEventType type);
 
@@ -38,9 +40,10 @@ struct RuntimeEvent {
     std::optional<std::uint64_t> generation;
     // Captured episode/launch bridge; only the SM/RM writer adapters publish it.
     std::optional<RecoveryContext> recovery_context;
+    std::optional<ComponentHealthFact> component_health;
 };
 
-enum class EventType { start, stop, heartbeat, health_check, health_missed, process_exited, shutdown, device_state, runtime_event, restart_request, recovery_result };
+enum class EventType { start, stop, heartbeat, health_check, health_missed, process_exited, shutdown, device_state, runtime_event, restart_request, recovery_result, component_ingress_wake };
 
 struct Event {
     EventType type;
@@ -57,6 +60,7 @@ struct Event {
     std::optional<std::uint64_t> instance_generation;
     std::optional<RecoveryContext> recovery_context;
     std::optional<RecoveryResult> recovery_result;
+    unsigned component_ingress_batch = 0; // Private coalesced wake, never producer JSON.
 };
 
 // Single event-loop writer. External threads use EventQueue, never this object.

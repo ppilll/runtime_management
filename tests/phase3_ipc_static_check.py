@@ -34,7 +34,7 @@ def check_protocol():
                    re.findall(r"(\w+)\s*=\s*(\d+)", enum.group(1)))
     expected = dict(start=1, stop=2, query_status=3, heartbeat=4, event=5,
                     restart_service=6, get_service_list=7, get_device_state=8,
-                    get_health=9, subscribe_event=10, error=255)
+                    get_health=9, subscribe_event=10, health_report=11, error=255)
     require(members == expected, "wire types differ from Phase1/2/3 contract")
     require("header_size = 10" in header and "max_payload = 64 * 1024" in header,
             "existing frame sizes changed")

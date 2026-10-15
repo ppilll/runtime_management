@@ -23,7 +23,8 @@ ARTIFACTS = (
     "docs/P3/event_aggregation_implementation.md",
 )
 EVENTS = {"service_started", "service_failed", "service_stopped", "heartbeat_timeout",
-          "resource_warning", "recovery_start", "recovery_success", "recovery_failed"}
+          "resource_warning", "recovery_start", "recovery_success", "recovery_failed",
+          "component_health_changed"}
 
 
 def read(name):
@@ -153,7 +154,7 @@ def main():
         print("FAIL: " + str(error), file=sys.stderr)
         return 1
     print(f"PASS: {len(files)} C++ files; {scenarios} test functions; {targets} targets, {registrations} CTest entries")
-    print("PASS: eight internal event types/labels; static criticality, priority and runtime adapter structure")
+    print("PASS: original eight + one component event types/labels; static criticality, priority and runtime adapter structure")
     print(f"PASS: nine original plus 15 aggregate triples ({triples} total); {paths} extracted-table scenario paths")
     print("PASS: four requested C++ scenarios registered; dispatcher FIFO structure; artifact whitespace")
     print("LIMIT: source/contract checks only; C++ execution, types/linking and concurrency remain unverified")

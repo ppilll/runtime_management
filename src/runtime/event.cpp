@@ -14,6 +14,7 @@ const char* event_name(RuntimeEventType type) {
     case RuntimeEventType::recovery_start: return "RECOVERY_START";
     case RuntimeEventType::recovery_success: return "RECOVERY_SUCCESS";
     case RuntimeEventType::recovery_failed: return "RECOVERY_FAILED";
+    case RuntimeEventType::component_health_changed: return "COMPONENT_HEALTH_CHANGED";
     }
     return "UNKNOWN";
 }

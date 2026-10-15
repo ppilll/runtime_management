@@ -2,6 +2,7 @@
 #include <cctype>
 #include <cmath>
 #include <fstream>
+#include <initializer_list>
 #include <map>
 #include <stdexcept>
 #include <variant>
@@ -16,6 +17,28 @@ using Array = std::vector<Json>;
 struct Json : std::variant<std::nullptr_t, bool, long long, std::string, Array, Object> {
     using variant::variant;
 };
+
+// Only new health names use this stricter UTF-8 check; legacy parser semantics
+// remain unchanged. Decoded JSON surrogate escapes are already checked below.
+bool health_name(const std::string& text) {
+    if (text.empty() || text.find('\0') != std::string::npos) return false;
+    for (std::size_t i = 0; i < text.size();) {
+        const auto first = static_cast<unsigned char>(text[i++]);
+        if (first < 0x80) continue;
+        const unsigned count = first >= 0xc2 && first <= 0xdf ? 1 :
+            first >= 0xe0 && first <= 0xef ? 2 : first >= 0xf0 && first <= 0xf4 ? 3 : 0;
+        if (!count || count > text.size() - i) return false;
+        unsigned cp = first & (count == 1 ? 31 : count == 2 ? 15 : 7);
+        for (unsigned n = 0; n < count; ++n) {
+            const auto next = static_cast<unsigned char>(text[i++]);
+            if ((next & 0xc0) != 0x80) return false;
+            cp = (cp << 6) | (next & 63);
+        }
+        if ((count == 1 && cp < 0x80) || (count == 2 && cp < 0x800) ||
+            (count == 3 && cp < 0x10000) || cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff)) return false;
+    }
+    return true;
+}
 
 class Parser {
 public:
@@ -213,6 +236,59 @@ MonitoringConfig monitoring(const Object& root) {
     return config;
 }
 
+void keys(const Object& object, std::initializer_list<const char*> allowed) {
+    for (const auto& entry : object) {
+        bool found = false;
+        for (const auto* name : allowed) if (entry.first == name) found = true;
+        if (!found) throw std::runtime_error("unknown health field: " + entry.first);
+    }
+}
+
+ServiceHealthPolicy policy(const Object& object) {
+    if (!field(object, "required") || !field(object, "criticality"))
+        throw std::runtime_error("explicit health policy required");
+    ServiceHealthPolicy result;
+    result.required = get<bool>(object, "required", false);
+    const auto level = get<std::string>(object, "criticality", "");
+    if (level == "HIGH") result.criticality = ServiceCriticality::high;
+    else if (level == "MEDIUM") result.criticality = ServiceCriticality::medium;
+    else if (level == "LOW") result.criticality = ServiceCriticality::low;
+    else throw std::runtime_error("invalid health criticality");
+    return result;
+}
+
+HealthConfig health(const Object& root, const std::vector<ServiceConfig>& services) {
+    HealthConfig result;
+    const auto* value = field(root, "health");
+    if (!value) return result;
+    const auto* object = std::get_if<Object>(value);
+    if (!object) throw std::runtime_error("health must be an object");
+    keys(*object, {"services", "components"});
+    for (const auto* name : {"services", "components"}) {
+        const auto* entries = field(*object, name);
+        if (!entries) continue;
+        const auto* array = std::get_if<Array>(entries);
+        if (!array || array->size() > (std::string(name) == "services" ? 32u : 1u))
+            throw std::runtime_error("invalid health array size/type");
+        for (const auto& entry : *array) {
+            const auto* item = std::get_if<Object>(&entry);
+            if (!item) throw std::runtime_error("health entry must be an object");
+            if (std::string(name) == "services") {
+                keys(*item, {"service_name", "required", "criticality"});
+                const auto key = get<std::string>(*item, "service_name", "");
+                if (!result.services.emplace(key, policy(*item)).second)
+                    throw std::runtime_error("duplicate health service policy");
+            } else {
+                keys(*item, {"component", "producer_service", "required", "criticality"});
+                result.components.emplace_back(get<std::string>(*item, "component", ""),
+                    get<std::string>(*item, "producer_service", ""), policy(*item));
+            }
+        }
+    }
+    ConfigManager::validate(result, services);
+    return result;
+}
+
 ServiceConfig service(const Json& value) {
     const auto* object = std::get_if<Object>(&value);
     if (!object) throw std::runtime_error("service entry must be an object");
@@ -259,6 +335,30 @@ ServiceConfig service(const Json& value) {
 }
 
 } // namespace
+
+void ConfigManager::validate(const HealthConfig& health, const std::vector<ServiceConfig>& services) {
+    if (health.services.size() > 32 || health.components.size() > 1)
+        throw std::invalid_argument("health registry limit exceeded");
+    std::map<std::string, const ServiceConfig*> registry;
+    for (const auto& service : services) {
+        validate(service);
+        if (!registry.emplace(service.service_name, &service).second)
+            throw std::invalid_argument("duplicate service_name");
+    }
+    const auto known = [&](const std::string& name) {
+        return health_name(name) && registry.count(name) != 0;
+    };
+    for (const auto& entry : health.services)
+        if (!known(entry.first) || !valid_health_policy(entry.second))
+            throw std::invalid_argument("invalid health service policy");
+    for (const auto& entry : health.components) {
+        if (entry.component != "mcu_link" || !known(entry.producer_service) || !valid_health_policy(entry.policy))
+            throw std::invalid_argument("invalid component policy/producer");
+        const auto& producer = *registry.at(entry.producer_service);
+        if (!producer.autostart || producer.heartbeat_timeout < std::chrono::seconds{4})
+            throw std::invalid_argument("component producer requires autostart and heartbeat_timeout >=4");
+    }
+}
 
 void ConfigManager::validate(const ServiceConfig& config) {
     if (config.service_name.empty() || config.executable.empty())
@@ -320,7 +420,8 @@ RuntimeConfig ConfigManager::load_runtime_file(const std::string& path) {
         if (!names.emplace(result[i].service_name, i).second)
             throw std::runtime_error("duplicate service_name: " + result[i].service_name);
     }
-    return {std::move(result), monitoring(*object)};
+    auto health_config = health(*object, result);
+    return {std::move(result), monitoring(*object), std::move(health_config)};
 }
 
 } // namespace runtime

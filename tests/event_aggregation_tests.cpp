@@ -77,6 +77,59 @@ struct Fixture {
     void expect(DeviceState state) { require(states.query().current == state, "wrong aggregate device state"); }
 };
 
+// P6: an applied RM candidate and fresh component clear each retain the other
+// owners' latches. Exercise the original DSM paths, including terminal freeze.
+void test_p6_component_candidate_and_independent_resource_sources() {
+    Fixture fixture;
+    fixture.running();
+    fixture.aggregation.add_component({"mcu_link", "control_service", {ServiceCriticality::high, true}});
+    auto component = fact(RuntimeEventType::component_health_changed);
+    component.source = "component:mcu_link";
+    ComponentSample value{"mcu_link", ComponentHealthStatus::unhealthy, ComponentReason::link_lost,
+                          "owner loss", 1, 1, std::uint32_t{0}, ComponentSampleKind::issue};
+    component.component_health = ComponentHealthFact{value, {"control_service", 42, 1, "epoch", 1}, base, true};
+    require(fixture.aggregation.handle(component), "P6 loss rejected");
+    fixture.expect(DeviceState::error);
+    fixture.send(RuntimeEventType::service_failed, "control_service");
+    fixture.send(RuntimeEventType::recovery_start, "control_service");
+    fixture.expect(DeviceState::error);
+    fixture.send(RuntimeEventType::recovery_success, "control_service");
+    fixture.expect(DeviceState::error); // RM success cannot clear a link issue.
+    auto cpu = fact(RuntimeEventType::resource_warning);
+    cpu.source = "cpu_monitor";
+    require(fixture.aggregation.handle(cpu), "CPU warning");
+    auto memory = cpu;
+    memory.source = "memory_monitor";
+    memory.severity = ResourceSeverity::critical;
+    require(fixture.aggregation.handle(memory), "memory critical");
+    component.component_health->sample.status = ComponentHealthStatus::healthy;
+    component.component_health->sample.reason_code = ComponentReason::recovered;
+    component.component_health->sample.sample_kind = ComponentSampleKind::current;
+    component.component_health->observation_fresh = false;
+    require(fixture.aggregation.handle(component), "unfresh component sample");
+    fixture.expect(DeviceState::error);
+    component.component_health->observation_fresh = true;
+    require(fixture.aggregation.handle(component), "fresh link clear");
+    fixture.expect(DeviceState::error); // Memory remains critical.
+    memory.active = false;
+    require(fixture.aggregation.handle(memory), "memory clear");
+    fixture.expect(DeviceState::warning); // CPU source still latched.
+    cpu.active = false;
+    require(fixture.aggregation.handle(cpu), "CPU clear");
+    fixture.expect(DeviceState::running);
+    fixture.send(RuntimeEventType::service_failed, "control_service");
+    fixture.send(RuntimeEventType::recovery_start, "control_service");
+    fixture.send(RuntimeEventType::recovery_failed, "control_service");
+    fixture.expect(DeviceState::offline);
+    const auto before = fixture.states.query();
+    const auto notifications = fixture.changes.size();
+    require(fixture.aggregation.handle(component), "terminal link clear");
+    require(fixture.states.query().timestamp == before.timestamp &&
+            fixture.states.query().reason == before.reason && fixture.changes.size() == notifications,
+            "component clear changed terminal snapshot or emitted notification");
+    fixture.expect(DeviceState::offline);
+}
+
 void test_vision_failure_case1() {
     Fixture fixture;
     fixture.running();
@@ -633,6 +686,7 @@ void test_runtime_fifo_and_start_failure_adapter() {
 
 int main() {
     try {
+        test_p6_component_candidate_and_independent_resource_sources();
         test_p5_policy_fifo_downgrade_and_clear_reaggregate_all_health();
         test_p5_policy_clear_to_ready_and_offline_remains_terminal();
         test_vision_failure_case1();

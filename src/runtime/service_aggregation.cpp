@@ -26,6 +26,7 @@ void ServiceAggregation::add_service(const std::string& name, bool autostart) {
 
 bool ServiceAggregation::handle(const RuntimeEvent& event) {
     if (event.source.empty() || event.reason.empty()) return false;
+    if (event.type == RuntimeEventType::component_health_changed) return handle_component(event);
     auto service = services_.find(event.service_name);
     if (!event.service_name.empty() && service == services_.end()) return false;
     if (event.type == RuntimeEventType::resource_warning) {
@@ -201,6 +202,18 @@ DeviceState ServiceAggregation::evaluate() const {
     }
     bool required_ready = true;
     bool any_running = false;
+    bool critical_component = false;
+    for (const auto& [key, health] : components_) {
+        (void)key;
+        const auto status = health.fact.sample.status;
+        const bool healthy = status == ComponentHealthStatus::healthy && health.fact.observation_fresh;
+        if (health.entry.policy.required && !healthy) required_ready = false;
+        const bool unavailable = health.adverse == ComponentHealthStatus::unhealthy ||
+            (!healthy && health.ever_healthy &&
+             (status == ComponentHealthStatus::unknown || status == ComponentHealthStatus::connecting));
+        if (unavailable && health.entry.policy.criticality == ServiceCriticality::high) critical_component = true;
+        else if (unavailable || health.adverse == ComponentHealthStatus::degraded) warning = true;
+    }
     for (const auto& [name, health] : services_) {
         (void)name;
         any_running |= health.running;
@@ -217,6 +230,7 @@ DeviceState ServiceAggregation::evaluate() const {
     // A service restart cannot resolve critical resource pressure. Only a new
     // measurement from that resource producer can downgrade or clear it.
     if (critical_resource) return DeviceState::error;
+    if (critical_component) return DeviceState::error;
     if (critical_failure) {
         if (device_recovering_ || !unrecovered_critical) return DeviceState::recovering;
         return DeviceState::error;
@@ -250,6 +264,7 @@ void ServiceAggregation::reconcile(const RuntimeEvent& event) {
         transition(DeviceStateEventType::recovery_started, target, event);
     } else if (current == DeviceState::recovering) {
         transition(event.type == RuntimeEventType::service_failed || event.type == RuntimeEventType::heartbeat_timeout ||
+                       (event.type == RuntimeEventType::component_health_changed && target == DeviceState::error) ||
                        (event.type == RuntimeEventType::resource_warning && event.active &&
                         event.severity == ResourceSeverity::critical)
                        ? DeviceStateEventType::critical_failure : DeviceStateEventType::recovery_succeeded,
@@ -270,6 +285,42 @@ void ServiceAggregation::reconcile(const RuntimeEvent& event) {
 void ServiceAggregation::refresh(Clock::time_point at) {
     reconcile(RuntimeEvent{RuntimeEventType::recovery_success, {}, "service_aggregation",
                            "recalculate registered service health", at});
+}
+
+void ServiceAggregation::add_component(ComponentPolicyEntry entry) {
+    if (entry.component != "mcu_link" || entry.producer_service.empty() || !valid_health_policy(entry.policy) ||
+        !services_.count(entry.producer_service) || !components_.empty())
+        throw std::invalid_argument("invalid component registry");
+    ComponentHealth health{entry};
+    health.fact.sample.component = entry.component;
+    health.fact.identity.service_name = entry.producer_service;
+    components_.emplace(entry.component, std::move(health));
+}
+
+bool ServiceAggregation::handle_component(const RuntimeEvent& event) {
+    if (!event.service_name.empty() || !event.component_health) return false;
+    const auto& fact = *event.component_health;
+    const auto found = components_.find(fact.sample.component);
+    if (found == components_.end() || event.source != "component:" + fact.sample.component ||
+        fact.identity.service_name != found->second.entry.producer_service) return false;
+    auto& health = found->second;
+    if (fact.identity.launched_generation < health.fact.identity.launched_generation) return false;
+    if (fact.identity.launched_generation != health.fact.identity.launched_generation) {
+        health.ever_healthy = false;
+        health.adverse.reset();
+    }
+    health.fact = fact;
+    const auto status = fact.sample.status;
+    if (status == ComponentHealthStatus::healthy && fact.observation_fresh) {
+        health.ever_healthy = true;
+        health.adverse.reset(); // Only this component; process/resource/terminal remain.
+    } else if (status == ComponentHealthStatus::unhealthy) {
+        health.adverse = status;
+    } else if (status == ComponentHealthStatus::degraded && health.adverse != ComponentHealthStatus::unhealthy) {
+        health.adverse = status;
+    }
+    reconcile(event);
+    return true;
 }
 
 } // namespace runtime

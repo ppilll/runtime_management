@@ -19,7 +19,9 @@ int main(int argc, char** argv) {
         runtime::IpcManager ipc(argv[2], argv[3],
             [&](runtime::Event event) { core.post(std::move(event)); },
             [&](const std::string& name) { return core.query(name); },
-            config.services, [&] { return core.queryDeviceState(); });
+            config.services, [&] { return core.queryDeviceState(); },
+            std::make_shared<runtime::ComponentTransportAdapter>(core),
+            [&] { return core.queryComponentHealth(); });
         device_changes = ipc.device_state_sink();
         ipc.start();
         core.run();
